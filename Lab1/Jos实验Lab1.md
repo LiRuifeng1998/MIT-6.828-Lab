@@ -97,8 +97,6 @@
 
 * 0x10000c:	movw   $0x1234,0x472  (执行kernel代码)
 
-* 0xf0100034 <relocated+5>:	mov    $0xf0110000,%esp  //relocated () at kern/entry.S:76
-
   **练习解答：**
 
   1. At what point does the processor start executing 32-bit code? What exactly causes the switch from 16- to 32-bit mode?
@@ -123,7 +121,7 @@
        ljmp    $PROT_MODE_CSEG, $protcseg
      ```
 
-     指令 lgdt gdtdesc，是把gdtdesc这个标识符的值送入全局映射描述符表寄存器GDTR中。这个GDT表是处理器工作于保护模式下一个非常重要的表。这条指令的功能就是把关于GDT表的一些重要信息存放到CPU的GDTR寄存器中，其中包括GDT表的内存起始地址，以及GDT表的长度。
+     指令 `lgdt gdtdesc`，是把gdtdesc这个标识符的值送入全局映射描述符表寄存器GDTR中。这个GDT表是处理器工作于保护模式下一个非常重要的表。这条指令的功能就是把关于GDT表的一些重要信息存放到CPU的GDTR寄存器中，其中包括GDT表的内存起始地址，以及GDT表的长度。
 
      当加载完GDT表的信息到GDTR寄存器之后， 这几步操作是在修改CR0寄存器的内容。CR0寄存器还有CR1~CR3寄存器都是80x86的控制寄存器。其中$CR0_PE的值定义于"mmu.h"文件中，为0x00000001。可见上面的操作是把CR0寄存器的bit0置1，CR0寄存器的bit0是保护模式启动位，把这一位值1代表保护模式启动。
 
@@ -239,17 +237,17 @@
 
 1. 阅读 kern/printf.c、lib/printfmt.c 和 kern/console.c,弄明白它们之间的关系。
 
-   console.c 导出了 cputchar，getchar等函数。
+   `console.c` 导出了 cputchar，getchar等函数。
 
    ![](./pic/cputchar.png)
 
-   printf.c 的 vprintfmt 函数中使用了 putch函数作为参数，而putch函数调用了console.c中的cputchar。
+   `printf.c` 的 vprintfmt 函数中使用了 putch函数作为参数，而putch函数调用了console.c中的cputchar。
 
    简单来说，printf.c的功能，就是基于printfmt()和内核控制台的cputchar()的内核的cprintf控制台输出的简单实现。
 
    ![](./pic/putch.png)
 
-   Printfmt.c是精简的原始printf样式格式化例程，printf中的函数vcprintf调用了vprintfmt。
+   `Printfmt.c`是精简的原始printf样式格式化例程，printf中的函数vcprintf调用了vprintfmt。
 
 2. 我们省略了一小段代码 - 使用“％o”形式的模式打印八进制数字所需的代码。查找并补全此代码片段。
 
@@ -286,13 +284,13 @@
 
 **1.解释printf.c和console.c之间的接口。具体来说，console.c导出了什么函数？ printf.c如何使用这些函数？**
 
-**答：printf.c中的cprintf函数调用vcprintf，vcprintf调用lib/printfmt.c中的vprintfmt，vprintfmt调用printf.c中的putch函数，putch函数调用console.c中的cputchar函数，最终cputchar函数实现字符打印。**
+​	答：printf.c中的cprintf函数调用vcprintf，vcprintf调用lib/printfmt.c中的vprintfmt，vprintfmt调用printf.c中的putch函数，putch函数调用console.c中的cputchar函数，最终cputchar函数实现字符打印。
 
-​	**Printf.c代码很短，基本上就是各种函数的调用，就像是一些函数的连接枢纽文件。**
+​	Printf.c代码很短，基本上就是各种函数的调用，就像是一些函数的连接枢纽文件。
 
-​	**Console.c中有大量的宏定义，除了宏定义之外的内容可以明显的看到键盘上的键名以及鼠标滚轮滚动等指令的定义。因此大致推测console.c的作用是和底层的硬件打交道，识别硬件输入设备的指令，将硬件传输的电信号转化成数字信号（以地址的形式）参与编译。截图中可以看到cputchar函数的定义在console.c中，而printf.c中调用过cputchar函数，这个函数的作用应该是将硬件输入结果最终显示在屏幕上，而printf.c中的调用显示了两者存在联系，但是并不是直接调用，中间还借助了printfmt.c的帮助。**
+​	Console.c中有大量的宏定义，除了宏定义之外的内容可以明显的看到键盘上的键名以及鼠标滚轮滚动等指令的定义。因此大致推测console.c的作用是和底层的硬件打交道，识别硬件输入设备的指令，将硬件传输的电信号转化成数字信号（以地址的形式）参与编译。截图中可以看到cputchar函数的定义在console.c中，而printf.c中调用过cputchar函数，这个函数的作用应该是将硬件输入结果最终显示在屏幕上，而printf.c中的调用显示了两者存在联系，但是并不是直接调用，中间还借助了printfmt.c的帮助。
 
-​	**Printfmt.c代码也很长，主要就是vprintfmt函数。Printfmt.c可以理解为console.c和printf.c之间的翻译官角色，console.c输出的是由硬件电信号转化来的地址形式的数字信号，但是并不是可以直接被函数调用和输出的形式，printfmt中大量的case就是重新定义了这些地址形式的数字信号在编译处理时函数调用中的意义。换言之，printfmt是将console.c输出的地址信号进行了错误检查、格式处理之类的操作后，翻译为printf.c可以理解的代码意义上的数据类型，从而在console.c和printf.c之间建立起了联系。**
+​	Printfmt.c代码也很长，主要就是vprintfmt函数。Printfmt.c可以理解为console.c和printf.c之间的翻译官角色，console.c输出的是由硬件电信号转化来的地址形式的数字信号，但是并不是可以直接被函数调用和输出的形式，printfmt中大量的case就是重新定义了这些地址形式的数字信号在编译处理时函数调用中的意义。换言之，printfmt是将console.c输出的地址信号进行了错误检查、格式处理之类的操作后，翻译为printf.c可以理解的代码意义上的数据类型，从而在console.c和printf.c之间建立起了联系。
 
 **2.从console.c解释以下内容：**
 
@@ -352,29 +350,11 @@ cprintf("H%x Wo%s", 57616, &i);
 
 **可以修改cprintf中参数的顺序，将原本排在前面的参数后声明以维持参数压入栈中后的顺序不变。**
 
-**吐槽：**
-
-**（一）例如va_list这种宏太多了，每次想读个什么就递归出越来越多东西要看**
-
-**VA_LIST** **是在C语言中解决变参问题的一组宏，所在头文件：#include <stdarg.h>，用于获取不确定个数的参数。**
-
-**（1）首先在函数里定义一具VA_LIST型的变量，这个变量是指向参数的指针；**
-
-**（2）然后用VA_START宏初始化刚定义的VA_LIST变量；**
-
-**（3）然后用VA_ARG返回可变的参数，VA_ARG的第二个参数是你要返回的参数的类型（如果函数有多个可变参数的，依次调用VA_ARG获取各个参数）；**
-
-**（4）最后用VA_END宏结束可变参数的获取。**
-
-**都是局部代码段，函数和变量之间的关联很难理解，代码里又没有注释，只能大致理解作用是什么，无法完全弄清楚程序具体运行的步骤，和这样设计的原理。**
-
-**(二）console.c文件也太长了，如果有中文注释简直幸福得飞起**
-
 ### Exercise 9：内核如何为栈保留空间
 
 1. 在跳转到entry之前，并没有对%esp，%ebp寄存器的内容进行修改，可见在bootmain中并没有初始化堆栈空间的语句。
 
-   下面进入entry.S，看到了如下句子
+   下面进入entry.S，看到了如下句子，说明栈再次初始化
 
    ![](./pic/栈的初始化.png)
 
@@ -557,7 +537,7 @@ struct Stab {
 #define	N_SOL		0x84	// included source file name
 ```
 
-* monitor.c`修改如下:
+* `monitor.c`修改如下:
 
 ```c++
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
@@ -617,4 +597,22 @@ kernel被加载到物理内存0x100000处，但是却从entry处:0x10000c处开�
 _start = RELOC(entry)
 
 ```
+
+### 来自一位队员的吐槽：
+
+**（一）例如va_list这种宏太多了，每次想读个什么就递归出越来越多东西要看**
+
+**VA_LIST** **是在C语言中解决变参问题的一组宏，所在头文件：#include <stdarg.h>，用于获取不确定个数的参数。**
+
+**（1）首先在函数里定义一具VA_LIST型的变量，这个变量是指向参数的指针；**
+
+**（2）然后用VA_START宏初始化刚定义的VA_LIST变量；**
+
+**（3）然后用VA_ARG返回可变的参数，VA_ARG的第二个参数是你要返回的参数的类型（如果函数有多个可变参数的，依次调用VA_ARG获取各个参数）；**
+
+**（4）最后用VA_END宏结束可变参数的获取。**
+
+**都是局部代码段，函数和变量之间的关联很难理解，代码里又没有注释，只能大致理解作用是什么，无法完全弄清楚程序具体运行的步骤，和这样设计的原理。**
+
+**(二）console.c文件也太长了，如果有中文注释简直幸福得飞起**
 
