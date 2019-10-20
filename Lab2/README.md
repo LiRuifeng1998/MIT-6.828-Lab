@@ -28,9 +28,13 @@
 
 *任务：为整个JOS设置虚拟内存布局，映射前256MB物理内存到虚拟地址0xf0000000处，并映射虚拟内存的其他区域。*
 
+
+
 ## 二、实验过程
 
 #### Exercise 1：编写物理页分配器
+
+**页表管理：**每个页目录表有1024个页目录项，每个页目录项占用4字节，一个页目录表占4KB内存。而每个页目录项都指向一个有1024个页表项的页表，每个页表项也占用4字节，因此JOS中页目录和页表一共要占用 1025 * 4KB = 4100KB 约4MB的内存。而通常我们说每个用户进程虚拟地址空间为4GB，其实就是每个进程都有一个页目录表，进程运行时将页目录地址装载到CR3寄存器中，从而每个进程最大可以用4GB内存。在JOS中，为了简单起见，只用了一个页目录表，整个系统的线性地址空间4GB是被内核和所有其他的用户程序所共用的。
 
 ```c++
 在文件kern/pmap.c中，必须实现以下函数的代码（可能按照给定的顺序）。
@@ -92,8 +96,7 @@ struct Page {
 ```
 
 <hr>
-
-**pmap.h中除了定义了pmap.c中要完成的那几个代码之外，还定义了几个重要的内联函数：**
+**pmap.h中除了定义了pmap.c中要完成的那几个代码之外，还定义了几个重要的内联函数（页面操作函数）：**
 
 ```c++
 extern char bootstacktop[], bootstack[];
@@ -103,16 +106,18 @@ extern size_t npages;
 
 extern pde_t *kern_pgdir;
 
+#define KADDR(pa) _kaddr(__FILE__, __LINE__, pa)//物理地址转虚拟地址
+#define PADDR(kva) _paddr(__FILE__, __LINE__, kva)//虚拟地址转物理地址
 static inline physaddr_t
-page2pa(struct Page *pp)
+page2pa(struct Page *pp) //得到该 Page结构对应的物理内存的起始位置
 {
-	return (pp - pages) << PGSHIFT; //PGSHIFT = 12 页内偏移 2^12 = 4096字节
+	return (pp - pages) << PGSHIFT; //PGSHIFT = 12 ; 2^12 = 4096字节
 }
 ```
 
 ```c++
 static inline struct Page*
-pa2page(physaddr_t pa)
+pa2page(physaddr_t pa) //// 由物理地址得到Page结构体
 {
 	if (PGNUM(pa) >= npages)
 		panic("pa2page called with invalid pa");
@@ -121,8 +126,8 @@ pa2page(physaddr_t pa)
 ```
 
 ```c++
-static inline void* //a physical address and returns the corresponding kernel virtual address.
-page2kva(struct Page *pp)
+static inline void* 
+page2kva(struct Page *pp)// 返回Page结构pp所对应的物理页面的虚拟地址
 {
 	return KADDR(page2pa(pp));
 }
@@ -144,36 +149,44 @@ struct Page *pages;		// Physical page state array
 static struct Page *page_free_list;	// Free list of physical pages
 ```
 
-1. boot_alloc()
+1. boot_alloc() 
 
 ```c++
-// Allocate a chunk large enough to hold 'n' bytes, then update
-	// nextfree.  Make sure nextfree is kept aligned
-	// to a multiple of PGSIZE.
+// 字节单位申请内存，page_alloc()实现后便不再用。
+cprintf("boot_alloc memory at %x\n", nextfree);
+cprintf("Next memory at %x\n", ROUNDUP((char *) (nextfree+n), PGSIZE));
+	if (n != 0) 
+	{
+		char *next = nextfree;
+		nextfree = ROUNDUP((char *) (nextfree+n), PGSIZE);
+		return next;
+	} 
+	else 
+		return nextfree;
 ```
 
 2. mem_init()
 
-```
-
+```c++
+//内存功能初始化，只负责内核地址部分。
 ```
 
 3. page_init()
 
-```
-
+```c++
+//初始化物理页框表。
 ```
 
 4. page_alloc()
 
-```
-
+```c++
+//物理页分配
 ```
 
 4. page_free()
 
-```
-
+```c++
+//物理页释放
 ```
 
 
