@@ -276,7 +276,43 @@ memset(pages, 0, npages * sizeof(struct Page));//初始化为0
 
 ```c++
 //初始化物理页框表。
+// However this is not truly the case.  What memory is free?
+	//  1) Mark physical page 0 as in use.
+	//     This way we preserve the real-mode IDT and BIOS structures
+	//     in case we ever need them.  (Currently we don't, but...)
+	pages[0].pp_ref = 1;
+	//  2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
+	//     is free.
+	size_t i;	//page_free_list指向最后一个分配的页,pp_link指向前一个空闲页
+	//把所有空闲页串起来
+	for (i = 1; i < npages_basemem; i++) {
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = page_free_list;
+		page_free_list = &pages[i];
+	}
+	//  3) Then comes the IO hole [IOPHYSMEM, EXTPHYSMEM), which must
+	//     never be allocated.
+	for(i = IOPHYSMEM / PGSIZE; i < EXTPHYSMEM/PGSIZE;i++)
+	{
+		pages[i].pp_ref = 1;
+	}
+	//  4) Then extended memory [EXTPHYSMEM, ...).
+	//     Some of it is in use, some is free. Where is the kernel
+	//     in physical memory?  Which pages are already in use for
+	//     page tables and other data structures?
 
+	size_t first_free_paddr = PADDR(boot_alloc(0));
+	for(i = EXTPHYSMEM / PGSIZE; i < first_free_paddr / PGSIZE;i++)
+	{
+		pages[i].pp_ref = 1;
+	}
+
+	for(i = first_free_paddr / PGSIZE; i < npages; i++)
+	{
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = page_free_list;
+		page_free_list = &pages[i];
+	}
 ```
 
 4. page_alloc()
