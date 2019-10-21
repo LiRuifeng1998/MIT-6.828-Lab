@@ -1,6 +1,6 @@
 # JOS实验lab2 内存管理
 
-[[_TOC_]]
+[TOC]
 
 ## 零、实验要求
 
@@ -268,12 +268,15 @@ cprintf("Next memory at %x\n", ROUNDUP((char *) (nextfree+n), PGSIZE));
 
 ```c++
 //内存功能初始化，只负责内核地址部分。
+pages = (struct Page*)boot_alloc(npages * sizeof(struct Page));//分配npages个页*Page结构体大小个字节的空间
+memset(pages, 0, npages * sizeof(struct Page));//初始化为0
 ```
 
 3. page_init()
 
 ```c++
 //初始化物理页框表。
+
 ```
 
 4. page_alloc()
