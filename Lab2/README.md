@@ -297,7 +297,7 @@ static struct Page *page_free_list;	// Free list of physical pages
       })
       ```
    
-   5. 关于添加的代码就很容易了，根据参数进行对齐即可，返回nextfree即可（也就是指向的空闲的虚拟地址，以PAGESIZE大小对齐）
+   5. 关于添加的代码就很容易了，根据参数进行对齐即可。如果n=0的话，就直接返回返回result即可（也就是指向的空闲的虚拟地址，以PAGESIZE大小对齐）
    
 2. mem_init()
 
