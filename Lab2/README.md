@@ -207,7 +207,7 @@ extern pde_t *kern_pgdir;
 #define KADDR(pa) _kaddr(__FILE__, __LINE__, pa)//物理地址转虚拟地址
 #define PADDR(kva) _paddr(__FILE__, __LINE__, kva)//虚拟地址转物理地址
 static inline physaddr_t
-page2pa(struct Page *pp) //得到该 Page结构对应的物理内存的起始位置
+page2pa(struct Page *pp) //得到该 Page结构对应的物理页帧
 {
 	return (pp - pages) << PGSHIFT; //PGSHIFT = 12 ; 2^12 = 4096字节
 }
@@ -302,20 +302,20 @@ static struct Page *page_free_list;	// Free list of physical pages
 2. mem_init()
 
 ```c++
-//内存功能初始化，只负责内核地址部分。
-pages = (struct Page*)boot_alloc(npages * sizeof(struct Page));//分配npages个页*Page结构体大小个字节的空间
+//内存功能初始化
+pages = (struct Page*)boot_alloc(npages * sizeof(struct Page));//分配npages个页*Page结构体大小个字节的空间,即一个长度为npages的数组
 memset(pages, 0, npages * sizeof(struct Page));//初始化为0
 ```
 
 3. page_init()
 
 ```c++
-//初始化物理页框表。
+//初始化物理页框表，这个就按照注释的提示，结合物理内存的布局，维护pages数组即可
 // However this is not truly the case.  What memory is free?
 	//  1) Mark physical page 0 as in use.
 	//     This way we preserve the real-mode IDT and BIOS structures
 	//     in case we ever need them.  (Currently we don't, but...)
-	pages[0].pp_ref = 1;
+	pages[0].pp_ref = 1; //为1代表该页被占用
 	//  2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
 	//     is free.
 	size_t i;	//page_free_list指向最后一个分配的页,pp_link指向前一个空闲页
@@ -336,13 +336,13 @@ memset(pages, 0, npages * sizeof(struct Page));//初始化为0
 	//     in physical memory?  Which pages are already in use for
 	//     page tables and other data structures?
 
-	size_t first_free_paddr = PADDR(boot_alloc(0));
+	size_t first_free_paddr = PADDR(boot_alloc(0)); //这个是一个转换，传入0就能得到next_free的值，即扩展内存部分可用物理内存的首地址，从EXTPHYSMEM到该地址均被kernel占用
 	for(i = EXTPHYSMEM / PGSIZE; i < first_free_paddr / PGSIZE;i++)
 	{
 		pages[i].pp_ref = 1;
 	}
 
-	for(i = first_free_paddr / PGSIZE; i < npages; i++)
+	for(i = first_free_paddr / PGSIZE; i < npages; i++) //这是剩余可用的扩展内存
 	{
 		pages[i].pp_ref = 0;
 		pages[i].pp_link = page_free_list;
@@ -353,16 +353,61 @@ memset(pages, 0, npages * sizeof(struct Page));//初始化为0
 4. page_alloc()
 
 ```c++
-//物理页分配
+//物理页分配，维护page_free_list即可
+if (page_free_list) 
+	{
+		struct Page *temp = page_free_list;
+		page_free_list = page_free_list->pp_link;
+		if (alloc_flags & ALLOC_ZERO) 
+			memset(page2kva(temp), 0, PGSIZE);
+		return temp;
+	}
+	return NULL;
 ```
 
 4. page_free()
 
 ```c++
 //物理页释放
+// Fill this function in
+	assert(pp->pp_ref == 0 || pp->pp_link == NULL);
+
+	pp->pp_link = page_free_list;
+	page_free_list = pp;
 ```
 
+![](./pic/练习1测试结果.png)
 
+#### Exercise 2：分段（segmentation）和页转换（page translation）。
+
+##### (1)虚拟地址、线性地址、物理地址
+
+在x86术语中，虚拟地址由段选择器和段内的偏移组成。线性地址是在段转换之后，页转换之前的地址。*物理地址*是在段和页转换之后最终获得的最终地址。
+
+##### (2)内存管理方案
+
+内存管理的方案有**页式存储管理方案、段式存储管理方案、段页式存储管理方案**。
+
+页存储是从物理内存分配的角度对物理内存的划分，而段存储则是从程序本身的角度对内存进行划分，页存储会产生许多内存碎片，比如某个进程需要`5`页加一条指令，我们就需要分配`6`页给这个进程。
+
+段式存储是按程序自身的逻辑关系划分为若干个程序段，每个段都有一个段名 ，内存空间被动态划分为若干长度不相同的区域，称为物理段，每个物理段由起始地址和长度确定。和页机制类似，cpu取到逻辑地址，用段号查段表，得到该段在内存的起始地址，与段内偏移地址计算出物理地址。
+
+段页式存储综合页式、段式方案的优点，克服二者的缺点，将用户进程按段划分，内存按照页进行划分，以页为单位进行分配，逻辑地址划分为：[段号|页号|页内地址]。
+
+```c++
+           Selector  +--------------+         +-----------+
+          ---------->|              |         |           |
+                     | Segmentation |         |  Paging   |
+Software             |              |-------->|           |---------->  RAM
+            Offset   |  Mechanism   |         | Mechanism |
+          ---------->|              |         |           |
+                     +--------------+         +-----------+
+            Virtual(Logical)                   Linear                Physical
+```
+
+![](./pic/段页机制展示.png)
+
+在本次实验的boot/boot.S中，加载了一个全局描述符表（GDT），通过将所有段基地址设置为0并将其有效地址上限设置为0xffffffff，覆盖了整个32位的地址空间。因此，“段选择器”是不起作用的，线性地址总是等于虚拟地址，只需要关注页转换。
 
 ## 三、问题讨论
 
