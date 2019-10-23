@@ -514,19 +514,56 @@ page2kva(struct Page *pp)
 
 1. pgdir_walk（）
 
+   该函数实现虚拟地址到物理地址的翻译过程，实现如下图的转化
+
+   ![](./pic/walk.png)
+
+   注释中提到的[mmu.h](####(一) <inc/mmu.h>)在此
+
+    ```c
+   pte_t *
+   pgdir_walk(pde_t *pgdir, const void *va, int create)
+   {
+           // 取得虚拟地址的页目录项 PDX(va), 并得到物理地址中所对应的页目录，命名为 pde
+     			//pgdir是一个指向page directory的指针
+           pde_t pde = pgdir[PDX(va)];
+           // 如果该物理页面 pde 不存在
+           if (!(pde & PTE_P))
+               // pde 不存在且不允许创建
+               if (!create)
+                   return NULL;
+               // pde 不存在且允许创建
+               else {
+                   // 新建页面 pp
+                   struct PageInfo *pp = page_alloc(true);
+                   // 如果新建页面失败
+                   if (!pp)
+                       return NULL;
+                   // 新建页面的指针数量增长1
+                   (pp->pp_ref)++;
+                   // 新建页面取消限制权限
+                   pgdir[PDX(va)] = page2pa(pp) | PTE_U | PTE_P | PTE_W;
+                   // 取得虚拟地址的页表项 PTX(va)，并找到新建页面所对应的地址
+                   return (pte_t *) page2kva(pp) + PTX(va);
+               }
+           // 如果该页目录的物理地址 pde存在，说明该地址已分配，则返回已分配过的地址
+           return (pte_t *) KADDR(PTE_ADDR(pde)) + PTX(va);
+   }
+    ```
+
    
 
 2. boot_map_region（）
 
-   
+    
 
 3. page_lookup（）
 
-   
+    
 
 4. page_remove（）
 
-   
+    
 
 5. page_insert（）
 
@@ -568,3 +605,7 @@ page2kva(struct Page *pp)
 
 
 
+
+
+[参考标识符]: 
+[标识符]: 
