@@ -411,7 +411,7 @@ if (page_free_list)
 
 
 
-关于EXercise1的一点总结：
+**关于EXercise1的一点总结：**
 
 1. 在boot_alloc()函数处迷惑了很长时间：为什么其中会出现虚拟地址？
 
@@ -482,7 +482,7 @@ check_page()（由mem_init()调用）可以用于测试你的页表管理程序�
 
 该练习中的函数是都是有关于虚拟地址和物理地址转换的
 
-`pmap.h`中有以下函数
+**`pmap.h`中有以下函数**
 
 ```c++
 static inline physaddr_t
@@ -507,18 +507,38 @@ page2kva(struct Page *pp)
 ```
 
 + page2pa(*Page) 是得到参数Page对应物理内存的起始位置
-
 + pa2page(physaddr_t)是由一个物理地址得到对应的Page
-
 + page2kva(*Page)是获得一个Page对应的虚拟内核地址的
+
+**`mmu.h`中有一下宏定义:**（之后会用到）（段页机制的图中展示的更好）
+
+```c
+#define PTE_P		0x001	// Present
+#define PTE_W		0x002	// Writeable
+#define PTE_U		0x004	// User
+#define PTE_PWT		0x008	// Write-Through
+#define PTE_PCD		0x010	// Cache-Disable
+#define PTE_A		0x020	// Accessed
+#define PTE_D		0x040	// Dirty
+#define PTE_PS		0x080	// Page Size
+#define PTE_G		0x100	// Global
+```
+
+（存在，可写，用户，不允许缓存，可达，脏读，页面大小，是否全局等）
 
 1. pgdir_walk（）
 
-   该函数实现虚拟地址到物理地址的翻译过程，实现如下图的转化
+   **给定一个页目录表指针 pgdir ，该函数应该返回线性地址va所对应的页表项指针。**
 
    ![](./pic/walk.png)
 
    注释中提到的[mmu.h](####(一) <inc/mmu.h>)在此
+
+   按照注释中所写，整个程序的步骤如下：
+
+   当页目录索引内不存在 va 对应的表项时，即虚拟地址没有对应的物理地址，需要根据create判断是否要为其分配一个物理页面用作二级页表，这里需要设置权限，由于一级页表和二级页表都有权限控制，所以一般的做法是，放宽一级页表的权限，主要由二级页表来控制权限，在提示2中写道，要注意去掉页目录索引（PDX）和页表索引（PTX）的权限位以保证安全操作。
+
+   当页目录索引内存在 va 对应的表项时，即虚拟地址有对应的物理地址，该页面的指针数量应该加一，页面清空，并返回一个新页表页的指针。
 
     ```c
    pte_t *
@@ -528,14 +548,14 @@ page2kva(struct Page *pp)
      			//pgdir是一个指向page directory的指针
            pde_t pde = pgdir[PDX(va)];
            // 如果该物理页面 pde 不存在
-           if (!(pde & PTE_P))
-               // pde 不存在且不允许创建
+           if (!(pde & PTE_P)){
+             // pde 不存在且不允许创建
                if (!create)
                    return NULL;
                // pde 不存在且允许创建
                else {
                    // 新建页面 pp
-                   struct PageInfo *pp = page_alloc(true);
+                   struct Page *pp = page_alloc(true);
                    // 如果新建页面失败
                    if (!pp)
                        return NULL;
@@ -546,12 +566,24 @@ page2kva(struct Page *pp)
                    // 取得虚拟地址的页表项 PTX(va)，并找到新建页面所对应的地址
                    return (pte_t *) page2kva(pp) + PTX(va);
                }
-           // 如果该页目录的物理地址 pde存在，说明该地址已分配，则返回已分配过的地址
+           }
+           // 如果该页目录的物理地址pde存在，说明该地址已分配，则返回已分配过的地址
            return (pte_t *) KADDR(PTE_ADDR(pde)) + PTX(va);
    }
     ```
 
+   注解：
+
+   ```c
+   // Address in page table or page directory entry
+   #define PTE_ADDR(pte)	((physaddr_t) (pte) & ~0xFFF)
    
+   // page directory index
+   #define PDX(la)		((((uintptr_t) (la)) >> PDXSHIFT) & 0x3FF)
+   
+   // page table index
+   #define PTX(la)		((((uintptr_t) (la)) >> PTXSHIFT) & 0x3FF)
+   ```
 
 2. boot_map_region（）
 
@@ -569,13 +601,39 @@ page2kva(struct Page *pp)
    		*pte = pa | perm | PTE_P;
    	}
    }
+     
     ```
-
-   
 
 3. page_lookup（）
 
-    
+   返回虚拟地址va所映射的物理页的Page结构体的指针，如果pte_store参数不为0，则把这个物理页的页表项地址存放在pte_store中。
+
+   ```c
+   //
+   // Return the page mapped at virtual address 'va'.
+   // If pte_store is not zero, then we store in it the address
+   // of the pte for this page.  This is used by page_remove and
+   // can be used to verify page permissions for syscall arguments,
+   // but should not be used by most callers.
+   //
+   // Return NULL if there is no page mapped at va.
+   //
+   // Hint: the TA solution uses pgdir_walk and pa2page.
+   //
+   struct Page *
+   page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
+   {
+           // Fill this function in
+           pte_t *pte = pgdir_walk(pgdir,va,0);
+           if (!pte || !(*pte & PTE_P))
+               return NULL;
+           if (pte_store != 0)
+               *pte_store = pte;
+           return pa2page(PTE_ADDR(*pte));
+   }
+   ```
+
+   这个函数的功能就很容易实现了，我们只需要调用pgdir_walk函数获取这个va对应的页表项，然后判断这个页是否已经在内存中，如果在则返回这个页的Page结构体指针。并且把这个页表项的内容存放到pte_store中。
 
 4. page_remove（）
 
@@ -599,9 +657,40 @@ page2kva(struct Page *pp)
    }
     ```
 
-   
-
 5. page_insert（）
+
+   功能上是完成：把一个物理内存中页pp与虚拟地址va建立映射关系。
+
+   这个函数的主要步骤如下：
+
+   1. 首先通过pgdir_walk函数求出虚拟地址va所对应的页表项。
+   2. 修改pp_ref的值。
+   3. 查看这个页表项，确定va是否已经被映射，如果被映射，则删除这个映射。(9-13)
+   4. 把va和pp之间的映射关系加入到页表项中。(14-15)
+
+   ```c
+   int
+   page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
+   {
+           // Fill this function in
+           pte_t *pte = pgdir_walk(pgdir,va,1);
+           if (!pte)
+               return -E_NO_MEM;
+           // 如果 va 对应的页面存在
+           if (*pte & PTE_P) {
+               if (PTE_ADDR(*pte) == page2pa(pp)){
+                   *pte = page2pa(pp)|perm|PTE_P;
+                   return 0;
+               }
+               page_remove(pgdir, va);
+           }
+           // 如果 va 对应的页面不存在
+           (pp->pp_ref)++;
+           *pte = page2pa(pp)|perm|PTE_P;
+           return 0;
+   }
+   ```
+
 
 #### (4)练习和问题解答
 
