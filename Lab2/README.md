@@ -724,7 +724,7 @@ boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映
 
 
 
-## 三、问题讨论
+## 三、问题解答
 
 **1 .假设以下JOS内核代码是正确的，变量x应该是什么类型，uintptr_t还是 physaddr_t？**
 
@@ -771,6 +771,6 @@ boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映
 > 在lab2中，我们加载了新的kern_pgdir后，没有映射虚拟地址低位[0,4M)，所以这个过渡是必要的。
 >
 
-## 三、问题讨论
+## 四、问题讨论
 
 1. How much space overhead is there for managing memory, if we actually had the maximum amount of physical memory? How is this overhead broken down?
