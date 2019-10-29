@@ -602,7 +602,7 @@ page2kva(struct Page *pp)
    	}
    }
      
-    ```
+   ```
 
 3. page_lookup（）
 
@@ -655,7 +655,7 @@ page2kva(struct Page *pp)
    //     the page table.
    	tlb_invalidate(pgdir, va);
    }
-    ```
+   ```
 
 5. page_insert（）
 
@@ -728,11 +728,19 @@ page2kva(struct Page *pp)
 
 ### PART 3 内核地址空间
 
+
+
+额外开销问题：
+
+如果我们的硬件配置了可以支持的最大的物理内存，那么额外开销就是所有的Page Directory和Page Table所占用的空间
+
++ Page Directory有1个，由1024个32bit寄存器组成，每个寄存器为4B，所以额外开销为1024*4B=4KB
++ Page Table有1024个，每个由1024个32bit寄存器组成，每个寄存器为4B，所以额外开销为1024\*1024\*4B=4MB
+
+综上，额外的开销为4KB+4MB
+
+
+
+How much space overhead is there for managing memory, if we actually had the maximum amount of physical memory? How is this overhead broken down?
+
 ## 三、问题讨论
-
-
-
-
-
-[参考标识符]: 
-[标识符]: 
