@@ -149,7 +149,7 @@ check_page_free_list()和check_page_alloc()会测试你的物理页面分配器�
 
 首先，查看pmap.c文件，发现其包含了两个很重要的头文件，分别是：`#include <inc/mmu.h>`和`#include <kern/pmap.h>`，对这两个文件进行宏观上的认识：
 
-#### (一) <inc/mmu.h>
+#### (1) <inc/mmu.h>
 
 该文件中包含三部分：
 
@@ -170,7 +170,7 @@ check_page_free_list()和check_page_alloc()会测试你的物理页面分配器�
 
 **第三部分是定义了Trap中断用到的数据结构和常量，如struct Taskstate、struct Gatedesc、struct Pseudodesc等。**
 
-#### (二) <kern/pmap.h>
+#### (2) <kern/pmap.h>
 
 在该文件中，又引入了一个很重要的文件`#include <inc/memlayout.h>`	。
 
@@ -231,7 +231,7 @@ page2kva(struct Page *pp)// 返回Page结构pp所对应的物理页面的虚拟�
 }
 ```
 
-#### (三）练习解答
+#### (3）练习解答
 
 **至此，我们知道内存管理分配需要的数据结构和函数已定义完成，我们分析pmap.c这个文件，并完成练习一，代码如下。**
 
@@ -462,6 +462,20 @@ Software             |              |-------->|           |---------->  RAM
 
 现在，你将编写一组程序来管理页表：插入和删除线性到物理映射，并在需要时创建新的页以存储页表。
 
+**练习2.**
+
+> 请参阅“ [Intel 80386参考手册”的](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/readings/i386/toc.htm)第5章和第6章 。仔细阅读有关页转换和基于页的保护部分（5.2和6.4）。我们建议你同时浏览有关分段的部分; 虽然JOS使用的分页机制实现的虚拟内存和保护，但是段转换和段保护功能无法在x86上禁用，因此你需要对其有基本的了解。
+
+**练习3.** 
+
+> 虽然GDB只能通过虚拟地址访问QEMU的内存，但在设置虚拟内存的同时，查看物理内存通常很有用。从实验室工具指南里查看QEMU [监视器命令](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/labguide.html#qemu)，特别注意 `xp`命令，它可以让你查看物理内存的内容。要调用QEMU监视器，请在终端中下 **Ctrl-a c**（注：这个表示先同时按下ctrl和a，然后再按下c）
+>
+> 使用QEMU监视器中**xp**命令和GDB中的的**x**命令查看相应物理地址和虚拟地址上内存的内容，并确保看到相同的数据.
+>
+> 我们修补的QEMU版本提供了一个**info pg** 的命令：它显示了当前页表的详细的表示，包括所有映射的内存范围，权限和标志。QEMU中原来还提供了一个**info mem**命令，显示虚拟内存的映射范围以及配置了哪些权限。
+
+![](./pic/exercise3.png)
+
 **练习4.** 在文件kern / pmap.c中，必须实现以下函数的代码。
 
 ```
@@ -602,7 +616,7 @@ page2kva(struct Page *pp)
    	}
    }
      
-    ```
+   ```
 
 3. page_lookup（）
 
@@ -655,7 +669,7 @@ page2kva(struct Page *pp)
    //     the page table.
    	tlb_invalidate(pgdir, va);
    }
-    ```
+   ```
 
 5. page_insert（）
 
@@ -692,25 +706,51 @@ page2kva(struct Page *pp)
    ```
 
 
-#### (4)练习和问题解答
+#### 
 
-**练习2.**
+### PART 3 内核地址空间
 
-> 请参阅“ [Intel 80386参考手册”的](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/readings/i386/toc.htm)第5章和第6章 。仔细阅读有关页转换和基于页的保护部分（5.2和6.4）。我们建议你同时浏览有关分段的部分; 虽然JOS使用的分页机制实现的虚拟内存和保护，但是段转换和段保护功能无法在x86上禁用，因此你需要对其有基本的了解。
+**练习5. 补全在mem_init()函数在调用check_page()函数后的代码。             **
 
-**练习3.** 
+```c++
+// Now we set up virtual memory
 
-> 虽然GDB只能通过虚拟地址访问QEMU的内存，但在设置虚拟内存的同时，查看物理内存通常很有用。从实验室工具指南里查看QEMU [监视器命令](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/labguide.html#qemu)，特别注意 `xp`命令，它可以让你查看物理内存的内容。要调用QEMU监视器，请在终端中下 **Ctrl-a c**（注：这个表示先同时按下ctrl和a，然后再按下c）
->
-> 使用QEMU监视器中**xp**命令和GDB中的的**x**命令查看相应物理地址和虚拟地址上内存的内容，并确保看到相同的数据.
->
-> 我们修补的QEMU版本提供了一个**info pg** 的命令：它显示了当前页表的详细的表示，包括所有映射的内存范围，权限和标志。QEMU中原来还提供了一个**info mem**命令，显示虚拟内存的映射范围以及配置了哪些权限。
+	//////////////////////////////////////////////////////////////////////
+	// Map 'pages' read-only by the user at linear address UPAGES
+	// Permissions:
+	//    - the new image at UPAGES -- kernel R, user R
+	//      (ie. perm = PTE_U | PTE_P)
+	//    - pages itself -- kernel RW, user NONE
+	// Your code goes here:
+	boot_map_region(kern_pgdir, UPAGES, PTSIZE, PADDR(pages), PTE_U);
+	//////////////////////////////////////////////////////////////////////
+	// Use the physical memory that 'bootstack' refers to as the kernel
+	// stack.  The kernel stack grows down from virtual address KSTACKTOP.
+	// We consider the entire range from [KSTACKTOP-PTSIZE, KSTACKTOP)
+	// to be the kernel stack, but break this into two pieces:
+	//     * [KSTACKTOP-KSTKSIZE, KSTACKTOP) -- backed by physical memory
+	//     * [KSTACKTOP-PTSIZE, KSTACKTOP-KSTKSIZE) -- not backed; so if
+	//       the kernel overflows its stack, it will fault rather than
+	//       overwrite memory.  Known as a "guard page".
+	//     Permissions: kernel RW, user NONE
+	// Your code goes here:
+	 boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_W);
+	//////////////////////////////////////////////////////////////////////
+	// Map all of physical memory at KERNBASE.
+	// Ie.  the VA range [KERNBASE, 2^32) should map to
+	//      the PA range [0, 2^32 - KERNBASE)
+	// We might not have 2^32 - KERNBASE bytes of physical memory, but
+	// we just set up the mapping anyway.
+	// Permissions: kernel RW, user NONE
+	// Your code goes here:
+	 boot_map_region(kern_pgdir, KERNBASE, -KERNBASE, 0, PTE_W);
+```
 
-![](./pic/exercise3.png)
 
-**问题1**
 
-**1.假设以下JOS内核代码是正确的，变量x应该是什么类型，uintptr_t还是 physaddr_t？**
+## 三、问题讨论
+
+**1 .假设以下JOS内核代码是正确的，变量x应该是什么类型，uintptr_t还是 physaddr_t？**
 
 ```c++
   *mystery_t* x;
@@ -726,13 +766,23 @@ page2kva(struct Page *pp)
 
 > 一旦我们处于保护模式（也就是我们在进入boot/boot.S中做的第一件事），就没有办法直接使用线性或物理地址。所有存储器引用被理解为虚拟地址并由MMU转换，这意味着C中的所有指针都是虚拟地址。
 
-### PART 3 内核地址空间
+**2 .哪些页目录已经被填充好，它们是怎样进行地址映射的？**
 
-## 三、问题讨论
+> 在练习5中，我们进行了虚拟地址空间到物理地址空间的映射，页目录有1024项，分别指向一个页表，即1024个页表。表中第一列是页表的index，第二列入口即为其虚拟地址，增长间隔为4MB（一个页表大小），第三列为该页表映射的物理内存区域。
 
+**3. 如何保证用户程序不能读取内核的内存？**
 
+> 用户和内核环境放在了同一个地址空间，Jos中有内存保护机制，每一块内存都有相应的权限。内核空间内存的页表项的perm没有设置PTE_U，需要CPL为0-2才可以访问。而用户程序的CPL为3，因为权限不够用户程序读取内核内存时会报错。
 
+**4. JOS操作系统可以支持的最大物理内存是多少？为什么？**
 
+> 由于虚拟内存布局中用于存放pages的区域大小为4MB，而一个page通过sizeof()计算出来是8Byte，一个page结构体对应一个物理页，算出物理页数=4*1024 *  1024 / 8 = 512K个页，即512k * 4 = 2G。 
+
+**6. 什么时刻我们才开始在KERNBASE上运行EIP，当我们开始在KERNBASE上运行EIP之时，我们能否以低地址的EIP继续执行？这个过渡为什么是必须要的？**
+
+> 在kern/entry.S中执行jmp *%eax之后就开始跳转至高地址运行了。由于在entry.S中加载的是entry_pgdir，只映射了虚拟地址 [0, 4M)和[KERNBASE, KERNBASE+4M)到物理地址 [0, 4M)，，所以能正常执行。
+>
+> 在lab2中，我们加载了新的kern_pgdir后，没有映射虚拟地址低位[0,4M)，所以这个过渡是必要的。
 
 [参考标识符]: 
 [标识符]: 
