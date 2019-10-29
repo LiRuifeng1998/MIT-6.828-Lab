@@ -411,7 +411,7 @@ if (page_free_list)
 
 
 
-关于EXercise1的一点总结：
+**关于EXercise1的一点总结：**
 
 1. 在boot_alloc()函数处迷惑了很长时间：为什么其中会出现虚拟地址？
 
@@ -528,14 +528,14 @@ page2kva(struct Page *pp)
      			//pgdir是一个指向page directory的指针
            pde_t pde = pgdir[PDX(va)];
            // 如果该物理页面 pde 不存在
-           if (!(pde & PTE_P))
-               // pde 不存在且不允许创建
+           if (!(pde & PTE_P)){
+             // pde 不存在且不允许创建
                if (!create)
                    return NULL;
                // pde 不存在且允许创建
                else {
                    // 新建页面 pp
-                   struct PageInfo *pp = page_alloc(true);
+                   struct Page *pp = page_alloc(true);
                    // 如果新建页面失败
                    if (!pp)
                        return NULL;
@@ -546,6 +546,7 @@ page2kva(struct Page *pp)
                    // 取得虚拟地址的页表项 PTX(va)，并找到新建页面所对应的地址
                    return (pte_t *) page2kva(pp) + PTX(va);
                }
+           }
            // 如果该页目录的物理地址 pde存在，说明该地址已分配，则返回已分配过的地址
            return (pte_t *) KADDR(PTE_ADDR(pde)) + PTX(va);
    }
