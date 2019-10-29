@@ -177,7 +177,7 @@
      
      ![](./pic/elf.png)
      
-     ```
+     ```c++
      // ELF 文件头
      struct Elf {
          uint32_t e_magic; // 标识是否是ELF文件

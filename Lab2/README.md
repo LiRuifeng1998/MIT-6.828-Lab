@@ -181,7 +181,7 @@ check_page_free_list()和check_page_alloc()会测试你的物理页面分配器�
 **定义了描述物理页的数据结构：**
 
 ```c++
-struct PageInfo {
+struct Page{
 	// Next page on the free list.
 	struct Page *pp_link;
 
@@ -555,7 +555,23 @@ page2kva(struct Page *pp)
 
 2. boot_map_region（）
 
-    
+    ```c++
+   //建立虚拟地址空间到物理地址空间的映射
+   static void
+   boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
+   {
+   	// Fill this function in
+   	int i;
+   	for (i = 0; i < size/PGSIZE; ++i, va += PGSIZE, pa += PGSIZE) {
+   		pte_t *pte = pgdir_walk(pgdir, (void *) va, 1);	//create
+   		if (!pte) 
+         panic("boot_map_region panic, out of memory");
+   		*pte = pa | perm | PTE_P;
+   	}
+   }
+    ```
+
+   
 
 3. page_lookup（）
 
@@ -563,11 +579,31 @@ page2kva(struct Page *pp)
 
 4. page_remove（）
 
-    
+    ```c++
+   void
+   page_remove(pde_t *pgdir, void *va)
+   {
+   	// Fill this function in
+   	pte_t *pte;
+   	struct Page *pg = page_lookup(pgdir, va, &pte);
+   	if (!pg || !(*pte & PTE_P))
+       return;	//page not exist
+   //   - The ref count on the physical page should decrement.
+   //   - The physical page should be freed if the refcount reaches 0.
+   	page_decref(pg);
+   //   - The pg table entry corresponding to 'va' should be set to 0.
+   	*pte = 0;
+   //   - The TLB must be invalidated if you remove an entry from
+   //     the page table.
+   	tlb_invalidate(pgdir, va);
+   }
+    ```
+
+   
 
 5. page_insert（）
 
-####(4)练习和问题解答
+#### (4)练习和问题解答
 
 **练习2.**
 
@@ -580,6 +616,8 @@ page2kva(struct Page *pp)
 > 使用QEMU监视器中**xp**命令和GDB中的的**x**命令查看相应物理地址和虚拟地址上内存的内容，并确保看到相同的数据.
 >
 > 我们修补的QEMU版本提供了一个**info pg** 的命令：它显示了当前页表的详细的表示，包括所有映射的内存范围，权限和标志。QEMU中原来还提供了一个**info mem**命令，显示虚拟内存的映射范围以及配置了哪些权限。
+
+![](./pic/exercise3.png)
 
 **问题1**
 
