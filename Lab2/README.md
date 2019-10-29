@@ -687,7 +687,7 @@ check_page()（由mem_init()调用）可以用于测试你的页表管理程序�
 
 **练习5. 补全在mem_init()函数在调用check_page()函数后的代码。**
 
-boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映射，根据虚拟内存的管理布局，按照注释，需要映射三片虚拟内存区域到整个物理内存。
+boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映射，根据虚拟内存的管理布局，按照注释，需要映射以下三片虚拟内存区域到整个物理内存。
 
 ```c++
 // Now we set up virtual memory
@@ -711,6 +711,7 @@ boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
+	//不写PTE_P是因为函数内部已经自己默认赋予此权限了。
 	 boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_W);
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
