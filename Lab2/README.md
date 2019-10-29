@@ -131,9 +131,9 @@
  */
 ```
 
-### PART 1：编写物理页分配器
 
-**页表管理：**每个页目录表有1024个页目录项，每个页目录项占用4字节，一个页目录表占4KB内存。而每个页目录项都指向一个有1024个页表项的页表，每个页表项也占用4字节，因此JOS中页目录和页表一共要占用 1025 * 4KB = 4100KB 约4MB的内存。而通常我们说每个用户进程虚拟地址空间为4GB，其实就是每个进程都有一个页目录表，进程运行时将页目录地址装载到CR3寄存器中，从而每个进程最大可以用4GB内存。在JOS中，为了简单起见，只用了一个页目录表，整个系统的线性地址空间4GB是被内核和所有其他的用户程序所共用的。
+
+### PART 1：编写物理页分配器
 
 ```c++
 在文件kern/pmap.c中，必须实现以下函数的代码（可能按照给定的顺序）。
@@ -315,7 +315,7 @@ Page结构之前已经展示，由两部分组成：
 + pp_link:指向下一个空闲的⻚。 
 + pp_ref:这是指向该⻚的指针数量。
 
-其中，分配二级页表的代码已经给出
+其中，分配页目录的代码已经给出
 
 ```c++
 kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
@@ -327,7 +327,7 @@ memset(kern_pgdir, 0, PGSIZE);
 3. page_init()
 
 ```c++
-//初始化物理页框表，这个就按照注释的提示，结合物理内存的布局，维护pages数组即可
+//初始化物理页框表，按照注释的提示，结合物理内存的布局，维护pages数组即可
 // However this is not truly the case.  What memory is free?
 	//  1) Mark physical page 0 as in use.
 	//     This way we preserve the real-mode IDT and BIOS structures
@@ -460,6 +460,8 @@ Software             |              |-------->|           |---------->  RAM
 
 #### (3)页表管理
 
+**页表管理：**每个页目录表有1024个页目录项，每个页目录项占用4字节，一个页目录表占4KB内存。而每个页目录项都指向一个有1024个页表项的页表，每个页表项也占用4字节，因此JOS中页目录和页表一共要占用 1025 * 4KB = 4100KB 约4MB的内存。而通常我们说每个用户进程虚拟地址空间为4GB，其实就是每个进程都有一个页目录表，进程运行时将页目录地址装载到CR3寄存器中，从而每个进程最大可以用4GB内存。在JOS中，为了简单起见，只用了一个页目录表，整个系统的线性地址空间4GB是被内核和所有其他的用户程序所共用的。
+
 现在，你将编写一组程序来管理页表：插入和删除线性到物理映射，并在需要时创建新的页以存储页表。
 
 **练习2.**
@@ -494,35 +496,7 @@ check_page()（由mem_init()调用）可以用于测试你的页表管理程序�
 
 ------
 
-该练习中的函数是都是有关于虚拟地址和物理地址转换的
 
-**`pmap.h`中有以下函数**
-
-```c++
-static inline physaddr_t
-page2pa(struct Page *pp)
-{
-	return (pp - pages) << PGSHIFT;
-}
-
-static inline struct Page*
-pa2page(physaddr_t pa)
-{
-	if (PGNUM(pa) >= npages)
-		panic("pa2page called with invalid pa");
-	return &pages[PGNUM(pa)];
-}
-
-static inline void*
-page2kva(struct Page *pp)
-{
-	return KADDR(page2pa(pp));
-}
-```
-
-+ page2pa(*Page) 是得到参数Page对应物理内存的起始位置
-+ pa2page(physaddr_t)是由一个物理地址得到对应的Page
-+ page2kva(*Page)是获得一个Page对应的虚拟内核地址的
 
 **`mmu.h`中有一下宏定义:**（之后会用到）（段页机制的图中展示的更好）
 
@@ -601,19 +575,19 @@ page2kva(struct Page *pp)
 
 2. boot_map_region（）
 
-    ```c++
+    建立虚拟地址空间到物理地址空间的映射，按照PGSIZE对齐，perm为映射内存区域的权限设置位。
+   
+   ```c++
    //建立虚拟地址空间到物理地址空间的映射
    static void
    boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
    {
    	// Fill this function in
-   	int i;
-   	for (i = 0; i < size/PGSIZE; ++i, va += PGSIZE, pa += PGSIZE) {
-   		pte_t *pte = pgdir_walk(pgdir, (void *) va, 1);	//create
-   		if (!pte) 
-         panic("boot_map_region panic, out of memory");
-   		*pte = pa | perm | PTE_P;
-   	}
+   	 for (uintptr_t end = va+size; va != end; pa += PGSIZE,va += PGSIZE)
+      {
+        			pte_t *t = pgdir_walk(pgdir,va,1);
+        			*t = pa|perm|PTE_P;
+       }
    }
      
    ```
@@ -651,7 +625,9 @@ page2kva(struct Page *pp)
 
 4. page_remove（）
 
-    ```c++
+   根据注释的提示，此功能是释放一个物理页与虚拟地址之间的映射关系，lookup函数返回对应va映射的物理页page结构，如果不存在就什么也不做。如果存在，则调用page_decref（）函数，将该页面的引用数量减一，如果为0，就释放掉该物理页。
+
+   ```c++
    void
    page_remove(pde_t *pgdir, void *va)
    {
@@ -660,13 +636,13 @@ page2kva(struct Page *pp)
    	struct Page *pg = page_lookup(pgdir, va, &pte);
    	if (!pg || !(*pte & PTE_P))
        return;	//page not exist
-   //   - The ref count on the physical page should decrement.
-   //   - The physical page should be freed if the refcount reaches 0.
+         //   - The ref count on the physical page should decrement.
+         //   - The physical page should be freed if the refcount reaches 0.
    	page_decref(pg);
-   //   - The pg table entry corresponding to 'va' should be set to 0.
+   		//   - The pg table entry corresponding to 'va' should be set to 0.
    	*pte = 0;
-   //   - The TLB must be invalidated if you remove an entry from
-   //     the page table.
+   		//   - The TLB must be invalidated if you remove an entry from
+   		//     the page table.
    	tlb_invalidate(pgdir, va);
    }
    ```
@@ -707,7 +683,9 @@ page2kva(struct Page *pp)
 
 ### PART 3 内核地址空间
 
-**练习5. 补全在mem_init()函数在调用check_page()函数后的代码。             **
+**练习5. 补全在mem_init()函数在调用check_page()函数后的代码。**
+
+boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映射，根据虚拟内存的管理布局，按照注释，需要映射以下三片虚拟内存区域到整个物理内存。
 
 ```c++
 // Now we set up virtual memory
@@ -731,6 +709,7 @@ page2kva(struct Page *pp)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
+	//不写PTE_P是因为函数内部已经自己默认赋予此权限了。
 	 boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, KSTKSIZE, PADDR(bootstack), PTE_W);
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
