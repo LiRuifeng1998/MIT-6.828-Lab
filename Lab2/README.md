@@ -591,13 +591,74 @@ page2kva(struct Page *pp)
 
 3. page_lookup（）
 
-     
+   返回虚拟地址va所映射的物理页的Page结构体的指针，如果pte_store参数不为0，则把这个物理页的页表项地址存放在pte_store中。
+
+   ```c
+   //
+   // Return the page mapped at virtual address 'va'.
+   // If pte_store is not zero, then we store in it the address
+   // of the pte for this page.  This is used by page_remove and
+   // can be used to verify page permissions for syscall arguments,
+   // but should not be used by most callers.
+   //
+   // Return NULL if there is no page mapped at va.
+   //
+   // Hint: the TA solution uses pgdir_walk and pa2page.
+   //
+   struct Page *
+   page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
+   {
+           // Fill this function in
+           pte_t *pte = pgdir_walk(pgdir,va,0);
+           if (!pte || !(*pte & PTE_P))
+               return NULL;
+           if (pte_store != 0)
+               *pte_store = pte;
+           return pa2page(PTE_ADDR(*pte));
+   }
+   ```
+
+   这个函数的功能就很容易实现了，我们只需要调用pgdir_walk函数获取这个va对应的页表项，然后判断这个页是否已经在内存中，如果在则返回这个页的Page结构体指针。并且把这个页表项的内容存放到pte_store中。
 
 4. page_remove（）
 
      
 
 5. page_insert（）
+
+   功能上是完成：把一个物理内存中页pp与虚拟地址va建立映射关系。
+
+   这个函数的主要步骤如下：
+
+   1. 首先通过pgdir_walk函数求出虚拟地址va所对应的页表项。
+   2. 修改pp_ref的值。
+   3. 查看这个页表项，确定va是否已经被映射，如果被映射，则删除这个映射。(9-13)
+   4. 把va和pp之间的映射关系加入到页表项中。(14-15)
+
+   ```c
+   int
+   page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
+   {
+           // Fill this function in
+           pte_t *pte = pgdir_walk(pgdir,va,1);
+           if (!pte)
+               return -E_NO_MEM;
+           // 如果 va 对应的页面存在
+           if (*pte & PTE_P) {
+               if (PTE_ADDR(*pte) == page2pa(pp)){
+                   *pte = page2pa(pp)|perm|PTE_P;
+                   return 0;
+               }
+               page_remove(pgdir, va);
+           }
+           // 如果 va 对应的页面不存在
+           (pp->pp_ref)++;
+           *pte = page2pa(pp)|perm|PTE_P;
+           return 0;
+   }
+   ```
+
+   
 
 #### (4)练习和问题解答
 
