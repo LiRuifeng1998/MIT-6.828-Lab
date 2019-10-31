@@ -822,3 +822,5 @@ boot_map_region()函数负责一片连续虚拟地址到一片物理地址的映
    	uint16_t pp_ref;
    };
    ```
+
+![](./pic/page结构体大小测试.png)
