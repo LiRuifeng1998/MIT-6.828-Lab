@@ -212,9 +212,14 @@ load_icode(struct Env *e, uint8_t *binary)
 
 
 
-### env_run()
+#### env_run()
 
 在用户模式运行用户进程。
+
++ 如果有正在运行的进程，就设置其属性为就绪态。
++ 将该进程设置为运行态。
++ 转换到该space address。
++ 最后一句env_pop_tf函数，就是将当前进程的trapframe通过弹栈的形式，切换当前的运行环境。
 
 ```c++
 void
@@ -231,6 +236,8 @@ env_run(struct Env *e)
     env_pop_tf(&curenv->env_tf);
 }
 ```
+
+
 
 ### Exercise 3
 
