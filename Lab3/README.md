@@ -42,13 +42,7 @@
 
 ```
 
-PTSIZE=4M
-
-envs物理内存 24个page，也就是98304Byte
-
-映射了PTSIZE
-
-
+在这里注意到一个细节，struct Env的大小为96个字节，NENV = 1024，算出实际分配的物理内存为98304Byte，即24个页，但是虚拟地址布局中 RO ENVS 区域大小是PTSIZE为4M（1024个页）。
 
 ### Exercise 2
 
@@ -81,6 +75,40 @@ env_init(void)
     env_init_percpu();
 }
 ```
+
+#### region_alloc()
+
+这个函数将从va开始len字节的虚拟地址空间重新分配和映射到物理页中，更新页目录及二级页表。
+**注意给定的va不一定是4096对齐的，解决办法是按提示所说将`va` rounddown向下4096对齐,`len` roundup向上4096对齐。**
+
+```c++
+// Allocate len bytes of physical memory for environment env,
+// and map it at virtual address va in the environment's address space.
+// Does not zero or otherwise initialize the mapped pages in any way.
+// Pages should be writable by user and kernel.
+// Panic if any allocation attempt fails.
+static void
+region_alloc(struct Env *e, void *va, size_t len)
+{
+	// LAB 3: Your code here.
+	// (But only if you need it for load_icode.)
+	//
+	void *begin = ROUNDDOWN(va, PGSIZE), *end = ROUNDUP(va + len, PGSIZE);
+    for (; begin < end; begin += PGSIZE) 
+    {
+        struct Page *p = page_alloc(0);
+        if (!p) 
+        	panic("env region_alloc failed");
+        page_insert(e->env_pgdir, p, begin, PTE_W | PTE_U);
+    }   
+	// Hint: It is easier to use region_alloc if the caller can pass
+	//   'va' and 'len' values that are not page-aligned.
+	//   You should round va down, and round (va + len) up.
+	//   (Watch out for corner-cases!)
+}
+```
+
+
 
 ### Exercise 3
 
