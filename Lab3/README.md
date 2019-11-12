@@ -169,12 +169,11 @@ region_alloc(struct Env *e, void *va, size_t len)
 
 + 设置进程的tf_eip值为 elf->e_entry，并分配映射用户栈内存。
 + 类似于boot loader从磁盘中加载内核，首先需要读取ELF header，这里将binary做强制类型转换即可
-  接着将类型为ELF_PROG_LOAD的segment载入内存，其实最快的方法是直接利用memcpy的方法进行内存的拷贝，但是这里存在一个问题，因为此时的page directory依旧是kernel的kern_pgdir，而我们需要将
-  数据拷贝到environment e自己的address space中.
+  接着将类型为ELF_PROG_LOAD的segment载入内存，其实最快的方法是直接利用memcpy的方法进行内存的拷贝，但是这里存在一个问题，因为此时的page directory依旧是kernel的kern_pgdir，而我们需要将数据拷贝到environment e自己的address space中.
   + 需要先执行指令"lcr3(PADDR(e->env_pgdir)); 进入e的address space，再进行memcpy。
   + 之后再lcr3(PADDR(kern_pgdir)),转换回来即可。
   + lcr3()函数进行space address的转换。
-
+  
 + 最后，我们需要制定environment e的执行入口，其实就是初始化e->env_tf.tf_eip。
 
 ```c++
@@ -228,13 +227,7 @@ env_create(uint8_t *binary, size_t size, enum EnvType type)
 }
 ```
 
-
-
-
-
-
-
-### env_run()
+#### env_run()
 
 在用户模式运行用户进程。
 
