@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # JOS实验lab3内存管理
 
 [TOC]
@@ -17,7 +18,29 @@
 
 
 
-### 练习1
+### Exercise 1
+
+
+* 修改 `mem_init()` 来为 `Env` 结构体的数组`envs`，分配内存。
+* 将`envs` 的物理内存设置为只读映射在页表中 `UENVS` 的位置，用户进程可以从这一数组读取数据。
+
+```c++
+// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
+	// LAB 3: Your code here.
+	envs = (struct Env*)boot_alloc(NENV * sizeof(struct Env));
+	memset(envs, 0, NENV * sizeof(struct Env));
+
+//////////////////////////////////////////////////////////////////////
+	// Map the 'envs' array read-only by the user at linear address UENVS
+	// (ie. perm = PTE_U | PTE_P).
+	// Permissions:
+	//    - the new image at UENVS  -- kernel R, user R
+	//    - envs itself -- kernel RW, user NONE
+	// LAB 3: Your code here.
+	boot_map_region(kern_pgdir, UENVS, PTSIZE, PADDR(envs), PTE_U);
+
+
+```
 
 PTSIZE=4M
 
@@ -27,7 +50,7 @@ envs物理内存 24个page，也就是98304Byte
 
 
 
-### 练习2
+### Exercise 2
 
 #### env_init()
 
@@ -59,20 +82,18 @@ env_init(void)
 }
 ```
 
-### 练习3
+### Exercise 3
 
-### 练习4
+### Exercise 4
 
-### 练习5
+### Exercise 5
 
-### 练习6
+### Exercise 6
 
-### 练习7
+### Exercise 7
 
-### 练习8
+### Exercise 8
 
-### 练习9
+### Exercise 9
 
-### 练习10
-
-
+### Exercise 10
