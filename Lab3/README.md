@@ -163,8 +163,6 @@ region_alloc(struct Env *e, void *va, size_t len)
 }
 ```
 
-
-
 #### load_icode()
 
 加载用户程序二进制代码。该函数会设置进程的tf_eip值为 elf->e_entry，并分配映射用户栈内存。注意，在调用 `region_alloc` 分配映射内存前，需要先设置cr3寄存器内容为进程的页目录物理地址，设置完成后再设回 kern_pgdir的物理地址。
@@ -197,6 +195,30 @@ load_icode(struct Env *e, uint8_t *binary)
     region_alloc(e, (void *)(USTACKTOP-PGSIZE), PGSIZE);
 }
 ```
+
+#### env_create()
+
+创建并分配一个新的进程，设置进程的type，以及加载二进制文件到新创建的进程的地址空间。
+
+```c++
+// Allocates a new env with env_alloc, loads the named elf
+// binary into it with load_icode, and sets its env_type.
+// This function is ONLY called during kernel initialization,
+// before running the first user-mode environment.
+// The new env's parent ID is set to 0.
+//
+void
+env_create(uint8_t *binary, size_t size, enum EnvType type)
+{
+    // LAB 3: Your code here.
+    struct Env *e;
+    env_alloc(&e, 0);
+    e->env_type = type;
+    load_icode(e, binary);
+}
+```
+
+
 
 
 
