@@ -109,7 +109,7 @@ static int
 env_setup_vm(struct Env *e)
 {
     int i;
-    struct PageInfo *p = NULL;
+    struct Page *p = NULL;
 
     // Allocate a page for the page directory
     if (!(p = page_alloc(ALLOC_ZERO)))
