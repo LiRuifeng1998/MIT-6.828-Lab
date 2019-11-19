@@ -37,7 +37,7 @@
    };
    ```
 
-2. 下面是直到用户代码执行
+2. 下面是用户代码执行过程
 
    - start (kern/entry.S)
    - i386_init (kern/init.c)
@@ -48,6 +48,30 @@
      - env_create
      - env_run
        - env_pop_tf
+   
+3. Trapframe结构体
+
+4. ```c++
+   struct Trapframe {
+   	struct PushRegs tf_regs;
+   	uint16_t tf_es;
+   	uint16_t tf_padding1;
+   	uint16_t tf_ds;
+   	uint16_t tf_padding2;
+   	uint32_t tf_trapno;
+   	/* below here defined by x86 hardware */
+   	uint32_t tf_err;
+   	uintptr_t tf_eip;
+   	uint16_t tf_cs;
+   	uint16_t tf_padding3;
+   	uint32_t tf_eflags;
+   	/* below here only when crossing rings, such as from user to kernel */
+   	uintptr_t tf_esp;
+   	uint16_t tf_ss;
+   	uint16_t tf_padding4;
+   } __attribute__((packed));
+   
+   ```
 
 ## 练习部分
 
@@ -95,7 +119,8 @@ env_init(void)
 {
     // Set up envs array
     // LAB 3: Your code here.
-    for (int i = NENV-1; i >= 0; i--) {
+  	int i = 0; 
+    for (i = NENV-1; i >= 0; i--) {
         struct Env *e = &envs[i];
         e->env_id = 0;
         e->env_status = ENV_FREE;
@@ -129,7 +154,7 @@ env_setup_vm(struct Env *e)
     // LAB 3: Your code here.
     p->pp_ref++;
     e->env_pgdir = (pde_t *)page2kva(p);
-    memcpy(e->env_pgdir, kern_pgdir, PGSIZE);
+    memmove(e->env_pgdir, kern_pgdir, PGSIZE);
 
     // UVPT maps the env's own page table read-only.
     // Permissions: kernel R, user R
@@ -201,7 +226,7 @@ load_icode(struct Env *e, uint8_t *binary)
     for (; ph < eph; ph++) {
         if(ph->p_type == ELF_PROG_LOAD) {
             region_alloc(e, (void *)ph->p_va, ph->p_memsz);
-            memcpy((void*)ph->p_va, (void *)(binary+ph->p_offset), ph->p_filesz);
+            memmove((void*)ph->p_va, (void *)(binary+ph->p_offset), ph->p_filesz);
             memset((void*)(ph->p_va + ph->p_filesz), 0, ph->p_memsz-ph->p_filesz);
         }
     }
@@ -263,6 +288,8 @@ env_run(struct Env *e)
 ```
 
 ### Exercise 3
+
+学习异常和中断的理论知识。
 
 ### Exercise 4
 
@@ -332,7 +359,8 @@ trap_init(void)
 1. 为每个异常/中断设置单独的处理函数的目的是什么？ 
 
    解答：不同的中断需要不同的中断处理程序。因为对待不同的中断需要进行不同的处理方式，有些中断比如指令错误，就需要直接中断程序的运行。 而I/O中断只需要读取数据后，程序再继续运行。
-   1. 为什么`user/softint.c`程序调用的是`int $14`会报13异常(general protection fault)？
+   
+2. 为什么`user/softint.c`程序调用的是`int $14`会报13异常(general protection fault)？
 
    解答：因为当前系统运行在用户态下，特权级为3，而INT 指令为系统指令，特权级为0。 会引发General Protection Exception。
 
@@ -340,7 +368,7 @@ trap_init(void)
 
 作业5，6是在trap_dispatch中对page fault异常和breakpoint异常进行处理。比较简单，代码如下，完成后`make grade`可以看到 `faultread、faultreadkernel、faultwrite、faultwritekernel，breakpoint` `通过测试。
 
-```
+```c++
 static void
 trap_dispatch(struct Trapframe *tf)
 {
@@ -377,7 +405,7 @@ trap_dispatch(struct Trapframe *tf)
 
 在trap_dispatch()中加入如下代码
 
-```
+```c++
  if (tf->tf_trapno == T_SYSCALL) {
         tf->tf_regs.reg_eax = syscall(
             tf->tf_regs.reg_eax,
@@ -393,7 +421,7 @@ trap_dispatch(struct Trapframe *tf)
 
 接着在`kern/syscall.c`中对不同类型的系统调用处理。
 
-```
+```c++
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
 syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) 
@@ -416,13 +444,13 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 
 完成作业7之后，在执行`user/hello.c`的第二句cprintf报 page fault，因为还没有设置它用到的thisenv的值。在`lib/libmain.c`的libmain()如下设置即可完成作业8：
 
-```
+```c++
 thisenv = &envs[ENVX(sys_getenvid())];
 ```
 
 完成作业8后，我们可以看到`user_hello`的正确输出了：
 
-```
+```c++
 ...
 Incoming TRAP frame at 0xefffffbc
 hello, world
@@ -441,7 +469,7 @@ K>
 
 处理在内核模式下出现page fault的情况，这里比较简单处理，直接panic。
 
-```
+```c++
 void
 page_fault_handler(struct Trapframe *tf)
 {
@@ -458,7 +486,7 @@ page_fault_handler(struct Trapframe *tf)
 
 接下来实现`user_mem_check`防止内存访问超出范围。
 
-```
+```c++
 int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
@@ -480,13 +508,13 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 
 然后在 `kern/syscall.c`的 sys_cputs()中加入检查。
 
-```
+```c++
 user_mem_assert(curenv, s, len, 0);
 ```
 
 此外，在`kern/kdebug.c`的debuginfo_eip()中加入检查。
 
-```
+```c++
 // Make sure this memory is valid.
 // Return -1 if it is not.  Hint: Call user_mem_check.
 // LAB 3: Your code here.
