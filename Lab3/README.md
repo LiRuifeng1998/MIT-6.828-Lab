@@ -528,8 +528,6 @@ trap_dispatch(struct Trapframe *tf)
 
 这个机制有效地防止了一些程序恶意任意调用指令，引发一些危险的错误，所以我认为这个粒度的权限机制时十分必要的。
 
-
-
 ### Exercise 7 
 
 实现系统调用的支持，需要修改`trap_dispatch()`和`kern/syscall.c`。
@@ -594,6 +592,8 @@ thisenv = &envs[ENVX(sys_getenvid())];
 
 1. 首先如果页错误发生在内核态时应该直接panic。
 
+   按照给定提示：要判断缺页是发生在用户模式还是内核模式下，只需检查 `tf_cs` 的低位。
+
 ```c++
 void
 page_fault_handler(struct Trapframe *tf)
@@ -633,6 +633,8 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 }
 ```
 
+提示：调整 `kern/syscall.c` 来验证系统调用的参数。
+
 有了工具函数，在`kern/syscall.c`中的系统调用函数只有`sys_cputs()`参数中有指针，所以需要对其进行检测：
 
 ```c++
@@ -669,6 +671,12 @@ if (user_mem_check(curenv, stabs, stab_end - stabs, PTE_U))
 if (user_mem_check(curenv, stabstr, stabstr_end - stabstr, PTE_U))
     return -1;
 ```
+
+### Exercise 10
+
+进行测试即可
+
+
 
 ## 遇到的问题
 
