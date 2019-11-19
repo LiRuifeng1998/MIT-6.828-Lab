@@ -104,6 +104,16 @@
 
    ![](./pic/Error_code.png)
 
+## 实验概括
+
+1. 进程建立，可以加载用户ELF文件并执行。
+   1. 内核维护一个名叫envs的Env数组，每个Env结构对应一个进程，Env结构最重要的字段有Trapframe env_tf（该字段中断发生时可以保持寄存器的状态），pde_t *env_pgdir（该进程的页目录地址）。进程对应的内核数据结构可以用下图总结：![JOS进程数据结构](./pic/JOS进程抽象.png)
+   2. 定义了env_init()，env_create()等函数，初始化Env结构，将Env结构Trapframe env_tf中的寄存器值设置到寄存器中，从而执行该Env。
+2. 创建异常处理函数，建立并加载IDT，使JOS能支持中断处理。要能说出中断发生时的详细步骤。需要搞清楚内核态和用户态转换方式：通过中断机制可以从用户环境进入内核态。使用iret指令从内核态回到用户环境。中断发生过程以及中断返回过程和系统调用原理可以总结为下图：![JOS中断过程，系统调用原理](./pic/中断.png)
+3. 利用中断机制，使JOS支持系统调用。要能说出遇到int 0x30这条系统调用指令时发生的详细步骤。见上图。
+
+
+
 ## 练习部分
 
 ### Exercise 1
@@ -442,8 +452,6 @@ trap_init(void)
 }
 ```
 
-
-
 **Question:**
 
 1. 为每个异常/中断设置单独的处理函数的目的是什么？ 
@@ -456,7 +464,7 @@ trap_init(void)
 
 ### Exercise 5 
 
-作业5，6是在trap_dispatch中对page fault异常和breakpoint异常进行处理。作业5实现对page_fault
+练习5，6是在trap_dispatch中对page fault异常和breakpoint异常进行处理。作业5实现对page_fault
 
 ```c++
 static void
@@ -513,15 +521,27 @@ trap_dispatch(struct Trapframe *tf)
 
 **Question：**
 
-为支持breakpoint，需要在初始化SETGATE做什么？ 设置DPL为3，这些机制目的都是为了加强权限控制。
+>- 断点那个测试样例可能会生成一个断点异常，或者生成一个一般保护错，这取决你是怎样在 IDT 中初始化它的入口的（换句话说，你是怎样在 `trap_init` 中调用 `SETGATE` 方法的）。为什么？你应该做什么才能让断点异常像上面所说的那样工作？怎样的错误配置会导致一般保护错？
+>- 你认为这样的机制意义是什么？尤其要想想测试程序 `user/softint` 的所作所为 / 尤其要考虑一下 `user/softint` 测试程序的行为。
 
+如果设置 `break point` 的 `DPL = 0` 则会引发权限错误，由于这里设置的 `DPL = 3` ，所以会引发断点。
 
+这个机制有效地防止了一些程序恶意任意调用指令，引发一些危险的错误，所以我认为这个粒度的权限机制时十分必要的。
 
-### Exercise 7 Exercise 8
+### Exercise 7 
 
 实现系统调用的支持，需要修改`trap_dispatch()`和`kern/syscall.c`。
 
-在trap_dispatch()中加入如下代码
+1. 分别在trapentry.S和trap.c的trap_init()函数中添加如下代码：
+
+```
+TRAPHANDLER_NOEC(th_syscall, T_SYSCALL)
+```
+```
+SETGATE(idt[T_SYSCALL], 0, GD_KT, th_syscall, 3);
+```
+
+2. 在trap_dispatch()中加入如下代码
 
 ```c++
  if (tf->tf_trapno == T_SYSCALL) {
@@ -537,7 +557,7 @@ trap_dispatch(struct Trapframe *tf)
  }   
 ```
 
-接着在`kern/syscall.c`中对不同类型的系统调用处理。
+3. 接着在`kern/syscall.c`中对不同类型的系统调用处理。
 
 ```c++
 // Dispatches to the correct kernel function, passing the arguments.
@@ -560,32 +580,19 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 }
 ```
 
+### Exercise 8
+
 完成作业7之后，在执行`user/hello.c`的第二句cprintf报 page fault，因为还没有设置它用到的thisenv的值。在`lib/libmain.c`的libmain()如下设置即可完成作业8：
 
 ```c++
 thisenv = &envs[ENVX(sys_getenvid())];
 ```
 
-完成作业8后，我们可以看到`user_hello`的正确输出了：
+### Exercise 9
 
-```c++
-...
-Incoming TRAP frame at 0xefffffbc
-hello, world
-Incoming TRAP frame at 0xefffffbc
-i am environment 00001000
-Incoming TRAP frame at 0xefffffbc
-[00001000] exiting gracefully
-[00001000] free env 00001000
-Destroyed the only environment - nothing more to do!
-Welcome to the JOS kernel monitor!
-Type 'help' for a list of commands.
-K> 
-```
+1. 首先如果页错误发生在内核态时应该直接panic。
 
-### Exercise 9 Exercise10
-
-处理在内核模式下出现page fault的情况，这里比较简单处理，直接panic。
+   按照给定提示：要判断缺页是发生在用户模式还是内核模式下，只需检查 `tf_cs` 的低位。
 
 ```c++
 void
@@ -602,7 +609,9 @@ page_fault_handler(struct Trapframe *tf)
 }
 ```
 
-接下来实现`user_mem_check`防止内存访问超出范围。
+2. 实现`kern/pmap.c`中的`user_mem_check()`工具函数。
+
+   该函数检测用户环境是否有权限访问线性地址区域[va, va+len)。然后对在kern/syscall.c中的系统调用函数使用user_mem_check()工具函数进行内存访问权限检查。
 
 ```c++
 int
@@ -624,10 +633,25 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 }
 ```
 
-然后在 `kern/syscall.c`的 sys_cputs()中加入检查。
+提示：调整 `kern/syscall.c` 来验证系统调用的参数。
+
+有了工具函数，在`kern/syscall.c`中的系统调用函数只有`sys_cputs()`参数中有指针，所以需要对其进行检测：
 
 ```c++
-user_mem_assert(curenv, s, len, 0);
+// Print a string to the system console.
+// The string is exactly 'len' characters long.
+// Destroys the environment on memory errors.
+static void
+sys_cputs(const char *s, size_t len)
+{
+    // Check that the user has permission to read memory [s, s+len).
+    // Destroy the environment if not.
+
+    // LAB 3: Your code here.
+    user_mem_assert(curenv, s, len, 0);
+    // Print the string supplied by the user.
+    cprintf("%.*s", len, s);
+}
 ```
 
 此外，在`kern/kdebug.c`的debuginfo_eip()中加入检查。
@@ -648,3 +672,18 @@ if (user_mem_check(curenv, stabstr, stabstr_end - stabstr, PTE_U))
     return -1;
 ```
 
+### Exercise 10
+
+进行测试即可
+
+
+
+## 遇到的问题
+
+1. make grade 不给分，出现no jos.out
+
+   按照网上的解决办法，修改了makefile的部分内容。
+
+   查看之前的git记录发现，在minor GUNmakefile时，删除了这一段话，至于为什么还不知道。
+
+   ![](./pic/GUNmakefile.png)
