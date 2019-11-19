@@ -429,32 +429,58 @@ trap_init(void)
 
    解答：因为当前系统运行在用户态下，特权级为3，而INT 指令为系统指令，特权级为0。 会引发General Protection Exception，就是trap13。
 
-### Exercise 5 Exercise 6
+### Exercise 5 
 
-作业5，6是在trap_dispatch中对page fault异常和breakpoint异常进行处理。比较简单，代码如下，完成后`make grade`可以看到 `faultread、faultreadkernel、faultwrite、faultwritekernel，breakpoint` `通过测试。
+作业5，6是在trap_dispatch中对page fault异常和breakpoint异常进行处理。作业5实现对page_fault
 
-```
+```c++
 static void
 trap_dispatch(struct Trapframe *tf)
 {
+    int32_t ret_code;
     // Handle processor exceptions.
-    // LAB 3: Your code here.
-    if (tf->tf_trapno == T_PGFLT) {
-        return page_fault_handler(tf);
-    }   
+    switch(tf->tf_trapno) {
+        case (T_PGFLT):
+            page_fault_handler(tf);
+            break; 
+         default:
+            // Unexpected trap: The user process or the kernel has a bug.
+            print_trapframe(tf);
+            if (tf->tf_cs == GD_KT)
+                panic("unhandled trap in kernel");
+            else {
+                env_destroy(curenv);
+                return;
+            }
+    }
+} 
+```
 
-    if (tf->tf_trapno == T_BRKPT) {
-        return monitor(tf);
-    }   
+### Exercise 6
 
-    // Unexpected trap: The user process or the kernel has a bug.
-    print_trapframe(tf);
-    if (tf->tf_cs == GD_KT)
-        panic("unhandled trap in kernel");
-    else {
-        env_destroy(curenv);
-        return;
-    }   
+```c++
+static void
+trap_dispatch(struct Trapframe *tf)
+{
+    int32_t ret_code;
+    // Handle processor exceptions.
+    switch(tf->tf_trapno) {
+        case (T_PGFLT):
+            page_fault_handler(tf);
+            break; 
+        case (T_BRKPT):
+            monitor(tf);        
+            break;
+         default:
+            // Unexpected trap: The user process or the kernel has a bug.
+            print_trapframe(tf);
+            if (tf->tf_cs == GD_KT)
+                panic("unhandled trap in kernel");
+            else {
+                env_destroy(curenv);
+                return;
+            }
+    }
 }
 ```
 
