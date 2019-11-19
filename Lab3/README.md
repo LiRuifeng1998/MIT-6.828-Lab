@@ -103,7 +103,7 @@
 
 6. [Error code Summary][https://pdos.csail.mit.edu/6.828/2016/readings/i386/s09_10.htm]
 
-   ![](./pic/error_code.png)
+   ![](./pic/Error_code.png)
 
 ## 练习部分
 
