@@ -49,6 +49,7 @@
      - env_run
        - env_pop_tf
    
+
 3. Trapframe结构体
 
 4. ```c++
@@ -72,6 +73,37 @@
    } __attribute__((packed));
    
    ```
+5. 除零异常示例：
+
+   ```c
+   除零异常：
+    					 +--------------------+ KSTACKTOP   //stack向下增长，留心“-”号          
+                        | 0x00000 | old SS   |     " - 4
+                        |      old ESP       |     " - 8
+                        |     old EFLAGS     |     " - 12
+                        | 0x00000 | old CS   |     " - 16
+                        |      old EIP       |     " - 20 <---- ESP 
+                        +--------------------+           
+           1.处理器切换到由TSS中的SS0(包含GD_KD)与ESP0(包含KSTACKTOP)指向的stack。 
+           2.处理器将old ss、old ESP、异常数据EFLAGS等推入堆栈
+           3.除零异常的中断向量是0，所以处理器读取IDT条目0并设置'CS:EIP'指向条目0描述的the handler function(处理函数)。
+           4.处理函数控制和处理这个exception，如结束这个用户环境
+   
+   对于某些x86异常，除零这种five words "standard",处理器还会把"error code"推入堆栈，如The page fault exception, number 14
+   					 +--------------------+ KSTACKTOP             
+                        | 0x00000 | old SS   |     " - 4
+                        |      old ESP       |     " - 8
+                        |     old EFLAGS     |     " - 12
+                        | 0x00000 | old CS   |     " - 16
+                        |      old EIP       |     " - 20
+                        |     error code     |     " - 24 <---- ESP
+                        +--------------------+             
+   
+   ```
+
+6. [Error code Summary][https://pdos.csail.mit.edu/6.828/2016/readings/i386/s09_10.htm]
+
+   ![](./pic/error_code.png)
 
 ## 练习部分
 
@@ -163,8 +195,6 @@ env_setup_vm(struct Env *e)
     return 0;
 }
 ```
-
-
 
 #### region_alloc()
 
@@ -291,11 +321,70 @@ env_run(struct Env *e)
 
 学习异常和中断的理论知识。
 
+> 如果还没有读过的话，读一读 [80386 Programmer’s Manual](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/readings/i386/toc.htm) 中的 [Chapter 9, Exceptions and Interrupts](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/readings/i386/c09.htm) （或者 [IA-32 Developer’s Manual](http://oslab.mobisys.cc/pdos.csail.mit.edu/6.828/2014/readings/ia32/IA32-3A.pdf) 的第五章）
+
 ### Exercise 4
 
-根据题目要求，首先在`trap.c`中补全`trap_init()`函数，主要是使用SETGATE来初始化中断向量。关于SETGATE函数定义在`mmu.h`中。
+>编辑一下trapentry.S 和 trap.c 文件，并且实现上面所说的功能。宏定义 TRAPHANDLER 和 TRAPHANDLER_NOEC 会对你有帮助。你将会在 trapentry.S文件中为在inc/trap.h文件中的每一个trap加入一个入口指， 你也将会提供_alttraps的值。
+>
+>　　你需要修改trap_init()函数来初始化idt表，使表中每一项指向定义在trapentry.S中的入口指针，SETGATE宏定义在这里用得上。
+>　　你所实现的 _alltraps 应该：
+>
+>　　1. 把值压入堆栈使堆栈看起来像一个结构体 Trapframe
+>　　2. 加载 GD_KD 的值到 %ds, %es寄存器中
+>　　3. 把%esp的值压入，并且传递一个指向Trapframe的指针到trap()函数中。
+>　　4. 调用trap
+>　　考虑使用pushal指令，他会很好的和结构体 Trapframe 的布局配合好。
+
+
+
+先看一下` trapentry.S `文件，里面定义了两个宏定义，`TRAPHANDLER`，`TRAPHANDLER_NOEC`。他们的功能从汇编代码中可以看出：声明了一个全局符号name，并且这个符号是函数类型的，代表它是一个中断处理函数名。其实这里就是两个宏定义的函数。这两个函数就是当系统检测到一个中断/异常时，需要首先完成的一部分操作，包括：中断异常码，中断错误码(error code)。*正是因为有些中断有中断错误码，有些没有，所以我们采用利用两个宏定义函数。*可以参考实验简介中的error code相关信息。
+
+alltraps函数其实就是为了能够让程序在之后调用trap.c中的trap函数时，能够正确的访问到输入的参数，即Trapframe指针类型的输入参数tf。
+
+```c++
+/*
+ * Lab 3: Your code here for generating entry points for the different traps.
+ */
+
+TRAPHANDLER_NOEC(handler0, T_DIVIDE)
+TRAPHANDLER_NOEC(handler1, T_DEBUG)
+TRAPHANDLER_NOEC(handler2, T_NMI)
+TRAPHANDLER_NOEC(handler3, T_BRKPT)
+TRAPHANDLER_NOEC(handler4, T_OFLOW)
+TRAPHANDLER_NOEC(handler5, T_BOUND)
+TRAPHANDLER_NOEC(handler6, T_ILLOP)
+TRAPHANDLER(handler7, T_DEVICE)
+TRAPHANDLER_NOEC(handler8, T_DBLFLT)
+TRAPHANDLER(handler10, T_TSS)
+TRAPHANDLER(handler11, T_SEGNP)
+TRAPHANDLER(handler12, T_STACK)
+TRAPHANDLER(handler13, T_GPFLT)
+TRAPHANDLER(handler14, T_PGFLT)
+TRAPHANDLER_NOEC(handler16, T_FPERR)
+TRAPHANDLER_NOEC(handler48, T_SYSCALL)
+
+/*
+ * Lab 3: Your code here for _alltraps
+ */
+_alltraps:
+        pushl %ds 
+        pushl %es 
+        pushal
+        movw $GD_KD, %ax
+        movw %ax, %ds 
+        movw %ax, %es 
+        pushl %esp
+        call trap /*never return*/
+
+1:jmp 1b
+```
+
+最后，在`trap.c`中补全`trap_init()`函数，主要是使用SETGATE来初始化中断向量。关于SETGATE函数定义在`mmu.h`中。
 
 设置 `IDT` ，需要先声明函数，需要注意，由于 `break_point` 普通用户也可以使用，所以 `DPL = 3`。
+
++ gate：是idt表的index入口
 
 + istrap: 1 for a trap (= exception) gate, 0 for an interrupt gate.
 + sel: 代码段选择子 for interrupt/trap handler
@@ -354,6 +443,8 @@ trap_init(void)
 }
 ```
 
+
+
 **Question:**
 
 1. 为每个异常/中断设置单独的处理函数的目的是什么？ 
@@ -362,7 +453,7 @@ trap_init(void)
    
 2. 为什么`user/softint.c`程序调用的是`int $14`会报13异常(general protection fault)？
 
-   解答：因为当前系统运行在用户态下，特权级为3，而INT 指令为系统指令，特权级为0。 会引发General Protection Exception。
+   解答：因为当前系统运行在用户态下，特权级为3，而INT 指令为系统指令，特权级为0。 会引发General Protection Exception，就是trap13。
 
 ### Exercise 5 Exercise 6
 
