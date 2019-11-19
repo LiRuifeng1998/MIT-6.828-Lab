@@ -49,10 +49,9 @@
      - env_run
        - env_pop_tf
    
-
 3. Trapframe结构体
 
-4. ```c++
+   ```c++
    struct Trapframe {
    	struct PushRegs tf_regs;
    	uint16_t tf_es;
@@ -73,7 +72,7 @@
    } __attribute__((packed));
    
    ```
-5. 除零异常示例：
+4. 除零异常示例：
 
    ```c
    除零异常：
@@ -101,7 +100,7 @@
    
    ```
 
-6. [Error code Summary][https://pdos.csail.mit.edu/6.828/2016/readings/i386/s09_10.htm]
+5. [Error code Summary][https://pdos.csail.mit.edu/6.828/2016/readings/i386/s09_10.htm]
 
    ![](./pic/Error_code.png)
 
@@ -483,6 +482,8 @@ trap_dispatch(struct Trapframe *tf)
 ```
 
 ### Exercise 6
+
+只需要在练习五的基础上，加一下breakpoint异常处理即可。
 
 ```c++
 static void
