@@ -37,7 +37,17 @@
    };
    ```
 
-2. 
+2. 下面是直到用户代码执行
+
+   - start (kern/entry.S)
+   - i386_init (kern/init.c)
+     - cons_init
+     - mem_init
+     - env_init
+     - trap_init (这时候还不完整)
+     - env_create
+     - env_run
+       - env_pop_tf
 
 ## 练习部分
 
@@ -252,20 +262,246 @@ env_run(struct Env *e)
 }
 ```
 
-
-
 ### Exercise 3
 
 ### Exercise 4
 
-### Exercise 5
+根据题目要求，首先在`trap.c`中补全`trap_init()`函数，主要是使用SETGATE来初始化中断向量。关于SETGATE函数定义在`mmu.h`中。
 
-### Exercise 6
+设置 `IDT` ，需要先声明函数，需要注意，由于 `break_point` 普通用户也可以使用，所以 `DPL = 3`。
 
-### Exercise 7
++ istrap: 1 for a trap (= exception) gate, 0 for an interrupt gate.
++ sel: 代码段选择子 for interrupt/trap handler
++ off: 代码段偏移 for interrupt/trap handler
++ dpl: 描述符特权级
 
-### Exercise 8
+```c++
+void
+trap_init(void)
+{
+    extern struct Segdesc gdt[];
 
-### Exercise 9
+    // LAB 3: Your code here.
+    void handler0();
+    void handler1();
+    void handler2();
+    void handler3();
+    void handler4();
+    void handler5();
+    void handler6();
+    void handler7();
+    void handler8();
+    void handler10();
+    void handler11();
+    void handler12();
+    void handler13();
+    void handler14();
+    void handler15();
+    void handler16();
+    void handler48();
 
-### Exercise 10
+    SETGATE(idt[T_DIVIDE], 0, GD_KT, handler0, 0); 
+    SETGATE(idt[T_DEBUG], 0, GD_KT, handler1, 0); 
+    SETGATE(idt[T_NMI], 0, GD_KT, handler2, 0); 
+
+    // T_BRKPT DPL 3
+    SETGATE(idt[T_BRKPT], 0, GD_KT, handler3, 3); 
+
+    SETGATE(idt[T_OFLOW], 0, GD_KT, handler4, 0); 
+    SETGATE(idt[T_BOUND], 0, GD_KT, handler5, 0); 
+    SETGATE(idt[T_ILLOP], 0, GD_KT, handler6, 0); 
+    SETGATE(idt[T_DEVICE], 0, GD_KT, handler7, 0); 
+    SETGATE(idt[T_DBLFLT], 0, GD_KT, handler8, 0); 
+    SETGATE(idt[T_TSS], 0, GD_KT, handler10, 0); 
+    SETGATE(idt[T_SEGNP], 0, GD_KT, handler11, 0); 
+    SETGATE(idt[T_STACK], 0, GD_KT, handler12, 0); 
+    SETGATE(idt[T_GPFLT], 0, GD_KT, handler13, 0); 
+    SETGATE(idt[T_PGFLT], 0, GD_KT, handler14, 0); 
+    SETGATE(idt[T_FPERR], 0, GD_KT, handler16, 0); 
+
+    // T_SYSCALL DPL 3
+    SETGATE(idt[T_SYSCALL], 0, GD_KT, handler48, 3); 
+
+    // Per-CPU setup 
+    trap_init_percpu();
+}
+```
+
+**Question:**
+
+1. 为每个异常/中断设置单独的处理函数的目的是什么？ 
+
+   解答：不同的中断需要不同的中断处理程序。因为对待不同的中断需要进行不同的处理方式，有些中断比如指令错误，就需要直接中断程序的运行。 而I/O中断只需要读取数据后，程序再继续运行。
+   1. 为什么`user/softint.c`程序调用的是`int $14`会报13异常(general protection fault)？
+
+   解答：因为当前系统运行在用户态下，特权级为3，而INT 指令为系统指令，特权级为0。 会引发General Protection Exception。
+
+### Exercise 5 Exercise 6
+
+作业5，6是在trap_dispatch中对page fault异常和breakpoint异常进行处理。比较简单，代码如下，完成后`make grade`可以看到 `faultread、faultreadkernel、faultwrite、faultwritekernel，breakpoint` `通过测试。
+
+```
+static void
+trap_dispatch(struct Trapframe *tf)
+{
+    // Handle processor exceptions.
+    // LAB 3: Your code here.
+    if (tf->tf_trapno == T_PGFLT) {
+        return page_fault_handler(tf);
+    }   
+
+    if (tf->tf_trapno == T_BRKPT) {
+        return monitor(tf);
+    }   
+
+    // Unexpected trap: The user process or the kernel has a bug.
+    print_trapframe(tf);
+    if (tf->tf_cs == GD_KT)
+        panic("unhandled trap in kernel");
+    else {
+        env_destroy(curenv);
+        return;
+    }   
+}
+```
+
+**Question：**
+
+为支持breakpoint，需要在初始化SETGATE做什么？ 设置DPL为3，这些机制目的都是为了加强权限控制。
+
+
+
+### Exercise 7 Exercise 8
+
+实现系统调用的支持，需要修改`trap_dispatch()`和`kern/syscall.c`。
+
+在trap_dispatch()中加入如下代码
+
+```
+ if (tf->tf_trapno == T_SYSCALL) {
+        tf->tf_regs.reg_eax = syscall(
+            tf->tf_regs.reg_eax,
+            tf->tf_regs.reg_edx,
+            tf->tf_regs.reg_ecx,
+            tf->tf_regs.reg_ebx,
+            tf->tf_regs.reg_edi,
+            tf->tf_regs.reg_esi
+        );  
+        return;
+ }   
+```
+
+接着在`kern/syscall.c`中对不同类型的系统调用处理。
+
+```
+// Dispatches to the correct kernel function, passing the arguments.
+int32_t
+syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) 
+{
+    switch (syscallno) {
+    case SYS_cputs:
+        sys_cputs((char *)a1, a2);
+        return 0;
+    case SYS_cgetc:
+        return sys_cgetc();
+    case SYS_getenvid:
+        return sys_getenvid();
+    case SYS_env_destroy:
+        return sys_env_destroy(a1);
+    default:
+        return -E_INVAL;
+    }
+}
+```
+
+完成作业7之后，在执行`user/hello.c`的第二句cprintf报 page fault，因为还没有设置它用到的thisenv的值。在`lib/libmain.c`的libmain()如下设置即可完成作业8：
+
+```
+thisenv = &envs[ENVX(sys_getenvid())];
+```
+
+完成作业8后，我们可以看到`user_hello`的正确输出了：
+
+```
+...
+Incoming TRAP frame at 0xefffffbc
+hello, world
+Incoming TRAP frame at 0xefffffbc
+i am environment 00001000
+Incoming TRAP frame at 0xefffffbc
+[00001000] exiting gracefully
+[00001000] free env 00001000
+Destroyed the only environment - nothing more to do!
+Welcome to the JOS kernel monitor!
+Type 'help' for a list of commands.
+K> 
+```
+
+### Exercise 9 Exercise10
+
+处理在内核模式下出现page fault的情况，这里比较简单处理，直接panic。
+
+```
+void
+page_fault_handler(struct Trapframe *tf)
+{
+    ...
+    // Handle kernel-mode page faults.
+
+    // LAB 3: Your code here.
+    if ((tf->tf_cs & 3) == 0) {
+        panic("kernel page fault at:%x\n", fault_va);
+    }   
+    ...
+}
+```
+
+接下来实现`user_mem_check`防止内存访问超出范围。
+
+```
+int
+user_mem_check(struct Env *env, const void *va, size_t len, int perm)
+{
+    uint32_t begin = (uint32_t)ROUNDDOWN(va, PGSIZE), end = (uint32_t)ROUNDUP(va + len, PGSIZE);
+    int check_perm = (perm | PTE_P);
+    uint32_t check_va = (uint32_t)va;
+
+    for (; begin < end; begin += PGSIZE) {
+        pte_t *pte = pgdir_walk(env->env_pgdir, (void *)begin, 0);
+        if ((begin >= ULIM) || !pte || (*pte & check_perm) != check_perm) {
+            user_mem_check_addr = (begin >= check_va ? begin : check_va);
+            return -E_FAULT;
+        }    
+    }    
+
+    return 0;
+}
+```
+
+然后在 `kern/syscall.c`的 sys_cputs()中加入检查。
+
+```
+user_mem_assert(curenv, s, len, 0);
+```
+
+此外，在`kern/kdebug.c`的debuginfo_eip()中加入检查。
+
+```
+// Make sure this memory is valid.
+// Return -1 if it is not.  Hint: Call user_mem_check.
+// LAB 3: Your code here.
+if (user_mem_check(curenv, usd, sizeof(struct UserStabData), PTE_U))
+    return -1; 
+            
+// Make sure the STABS and string table memory is valid.
+// LAB 3: Your code here.
+if (user_mem_check(curenv, stabs, stab_end - stabs, PTE_U))
+    return -1;
+
+if (user_mem_check(curenv, stabstr, stabstr_end - stabstr, PTE_U))
+    return -1;
+```
+
+这样，就完成了作业9-10。
+
+至此，lab 3完成，`make grade`可以看到分数为`80/80`。
