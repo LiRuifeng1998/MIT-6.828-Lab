@@ -285,7 +285,7 @@ env_create(uint8_t *binary, size_t size, enum EnvType type)
 {
     // LAB 3: Your code here.
     struct Env *e;
-    env_alloc(&e, 0);
+    env_alloc(&e, 0);//分配一个进程，包括分配envid，设置e->env_tf寄存器
     e->env_type = type;
     load_icode(e, binary);
 }
@@ -648,6 +648,3 @@ if (user_mem_check(curenv, stabstr, stabstr_end - stabstr, PTE_U))
     return -1;
 ```
 
-这样，就完成了作业9-10。
-
-至此，lab 3完成，`make grade`可以看到分数为`80/80`。
