@@ -48,6 +48,23 @@ struct CpuInfo {
 
 ![](./pic/cpuInfo.png)
 
+### 3 mem_int_mp（）
+
+```c++
+*    KERNBASE, ---->  +------------------------------+ 0xf0000000      --+
+*    KSTACKTOP        |     CPU0's Kernel Stack      | RW/--  KSTKSIZE   |
+*                     | - - - - - - - - - - - - - - -|                   |
+*                     |      Invalid Memory (*)      | --/--  KSTKGAP    |
+*                     +------------------------------+                   |
+*                     |     CPU1's Kernel Stack      | RW/--  KSTKSIZE   |
+*                     | - - - - - - - - - - - - - - -|                 PTSIZE
+*                     |      Invalid Memory (*)      | --/--  KSTKGAP    |
+*                     +------------------------------+                   |
+*                     :              .               :                   |
+*                     :              .               :                   |
+*    MMIOLIM ------>  +------------------------------+ 0xefc00000      --+
+```
+
 
 
 
@@ -56,7 +73,8 @@ struct CpuInfo {
 
 ### Exercise 1
 
-<<<<<<< HEAD
+>问题：
+>
 >实现在 `kern/pmap.c` 中的 `mmio_map_region` 方法。
 >
 >你可以看看 `kern/lapic.c` 中 `lapic_init` 的开头部分，了解一下它是如何被调用的。你还需要完成接下来的练习，你的 `mmio_map_region` 才能够正常运行。
@@ -111,10 +129,14 @@ mmio_map_region(physaddr_t pa, size_t size)
 
 ​		该函数作用：给定物理地址和size，将pa-pa+size映射到MMIOBASE-MMIOBASE+size上，设置权限位告诉CPU这块内存不应该cache，是不安全的。
 
-
 ### Exercise 2：应用处理器（AP）引导程序
 
-<hr>
+---
+
+> 练习 2:
+> 阅读 kern/init.c 中的 boot_aps() 和 mp_main() 方法，和 kern/mpentry.S 中的汇编代码。确保你已经明白了引导 AP 启动的控制流执行过程。
+>
+> 接着，修改你在 kern/pmap.c 中实现过的 page_init() 以避免将 MPENTRY_PADDR 加入到 free list 中，以使得我们可以安全地将 AP 的引导代码拷贝于这个物理地址并运行。
 
 ```c++
 //在启动 AP 之前，BSP 应当首先收集多处理器系统的信息，例如，CPU总数，他们的 APIC ID，和 LAPIC单元 的 MMIO 地址。
@@ -136,25 +158,49 @@ Q：为什么mpentry.S要用到MPBOOTPHYS，而boot.S不需要？
 
 ### Exercise 3：
 
-<hr>
+---
 
-修改 `mem_mp_init()`为每个cpu分配内核栈。CPU内核栈之间有空出KSTKGAP(32KB)，其目的是为了避免一个CPU的内核栈覆盖另外一个CPU的内核栈，空出来这部分可以在栈溢出时报错。每个堆栈的大小都是 `KSTKSIZE` 字节，加上 `KSTKGAP` 字节没有被映射的 守护页 。
+> 问题：
+>
+> 修改 `mem_mp_init()`为每个cpu分配内核栈。CPU内核栈之间有空出KSTKGAP(32KB)，其目的是为了避免一个CPU的内核栈覆盖另外一个CPU的内核栈，空出来这部分可以在栈溢出时报错。每个堆栈的大小都是 `KSTKSIZE` 字节，加上 `KSTKGAP` 字节没有被映射的守护页 。
 
 ```c++
-static void mem_init_mp(void)
+static void
+mem_init_mp(void)
 {
-    int i;
-  for (i = 0; i < NCPU; i++) 
-	{
-        int kstacktop_i = KSTACKTOP - KSTKSIZE - i * (KSTKSIZE + KSTKGAP);
-        boot_map_region(kern_pgdir, kstacktop_i, KSTKSIZE, PADDR(percpu_kstacks[i]), PTE_W);
-  }
+    // Map per-CPU stacks starting at KSTACKTOP, for up to 'NCPU' CPUs.
+    //
+    // For CPU i, use the physical memory that 'percpu_kstacks[i]' refers
+    // to as its kernel stack. CPU i's kernel stack grows down from virtual
+    // address kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP), and is
+    // divided into two pieces, just like the single stack you set up in
+    // mem_init:
+    //     * [kstacktop_i - KSTKSIZE, kstacktop_i)
+    //          -- backed by physical memory
+    //     * [kstacktop_i - (KSTKSIZE + KSTKGAP), kstacktop_i - KSTKSIZE)
+    //          -- not backed; so if the kernel overflows its stack,
+    //             it will fault rather than overwrite another CPU's stack.
+    //             Known as a "guard page".
+    //     Permissions: kernel RW, user NONE
+    //
+    // LAB 4: Your code here:
+    for (int i = 0; i < NCPU; i++) {
+        boot_map_region(kern_pgdir, 
+            KSTACKTOP - KSTKSIZE - i * (KSTKSIZE + KSTKGAP), 
+            KSTKSIZE, 
+            PADDR(percpu_kstacks[i]), 
+            PTE_W);
+    }
 }
 ```
 
-## Exercize 4
+映射方式按照memlayout.h中即可，布局图在前头。
 
-修改`trap_init_percpu()`，完成每个CPU的TSS初始化。设置ts_esp0和ts_ss0。
+### Exercize 4
+
+---
+
+> 修改`trap_init_percpu()`，完成每个CPU的TSS初始化。设置ts_esp0和ts_ss0。
 
 ```c++
 // Hints:
@@ -170,29 +216,39 @@ trap_init_percpu(void)
 {
     int cpu_id = thiscpu->cpu_id;
     struct Taskstate *this_ts = &thiscpu->cpu_ts;
+  	//上面为多个CPU分配了内核栈
     this_ts->ts_esp0 = KSTACKTOP - cpu_id * (KSTKSIZE + KSTKGAP);
     this_ts->ts_ss0 = GD_KD;
     this_ts->ts_iomb = sizeof(struct Taskstate);
 		//在lab3基础上修改以上代码
+  	//把ts换成this_ts，并遵循hint4进行更改
     gdt[(GD_TSS0 >> 3) + cpu_id] = SEG16(STS_T32A, (uint32_t) (this_ts),
                     sizeof(struct Taskstate) - 1, 0); 
     gdt[(GD_TSS0 >> 3) + cpu_id].sd_s = 0;
+  
     ltr(GD_TSS0 + (cpu_id << 3));
     lidt(&idt_pd);
 }
 ```
 
-## Exercize 5
+### Exercize 5
 
-目前我们的代码在 `mp_main()` 初始化完 AP 就不再继续执行了。在允许 AP 继续运行之前，我们需要首先提到当多个 CPU 同时运行内核代码时造成的 *竞争状态* (race condition) ，为了解决它，最简单的办法是使用一个 *全局内核锁* (big kernel lock)。这个 big kernel lock 是唯一的一个全局锁，每当有进程进入内核模式的时候，应当首先获得它，当进程回到用户模式的时候，释放它。在这一模式中，用户模式的进程可以并发地运行在任何可用的 CPU 中，但是最多只有一个进程可以运行在内核模式下。其他试图进入内核模式的进程必须等待。
 
-- `i386_init()` 中，在 BSP 唤醒其他 CPU 之前获得内核锁。
-- `mp_main()` 中，在初始化完 AP 后获得内核锁，接着调用 `sched_yield()` 来开始在这个 AP 上运行进程。
-- `trap()` 中，从用户模式陷入(trap into)内核模式之前获得锁。你可以通过检查 `tf_cs` 的低位判断这一 trap 发生在用户模式还是内核模式（译注：Lab 3 中曾经使用过这一检查）。
-- env_run() 中，恰好在 **回到用户进程之前** 释放内核锁。不要太早或太晚做这件事，否则可能会出现竞争或死锁。
+> 在上述提到的位置使用内核锁，加锁时使用 lock_kernel()， 释放锁时使用 unlock_kernel()。
+>
+> 
+>
+> + `i386_init()` 中，在 BSP 唤醒其他 CPU 之前获得内核锁。
+> + `mp_main()` 中，在初始化完 AP 后获得内核锁，接着调用 `sched_yield()` 来开始在这个 AP 上运行进程。
+> + `trap()` 中，从用户模式陷入(trap into)内核模式之前获得锁。你可以通过检查 `tf_cs` 的低位判断这一 trap 发生在用户模式还是内核模式（译注：Lab 3 中曾经使用过这一检查）。
+> + env_run() 中，恰好在 **回到用户进程之前** 释放内核锁。不要太早或太晚做这件事，否则可能会出现竞争或死锁。
+
+`lock_kernel()`调用了`spin_lock()`函数，`unlock_kernel()`调用了`spin_unlock()`函数。
+
+对于spin_lock()获取锁的操作，使用xchgl这个原子指令，xchg()封装了该指令，交换lk->locked和1的值，并将lk-locked原来的值返回。
+
 
 ```c++
-
 void i386_init(void)
 {
 	...
@@ -244,9 +300,14 @@ void env_run(struct Env *e)
 	env_pop_tf(&curenv->env_tf);
 	unlock_kernel();
 }
+
 ```
 
 
 
 ## 遇到的问题
 
+
+```
+
+```
