@@ -56,7 +56,6 @@ struct CpuInfo {
 
 ### Exercise 1
 
-<<<<<<< HEAD
 >实现在 `kern/pmap.c` 中的 `mmio_map_region` 方法。
 >
 >你可以看看 `kern/lapic.c` 中 `lapic_init` 的开头部分，了解一下它是如何被调用的。你还需要完成接下来的练习，你的 `mmio_map_region` 才能够正常运行。
@@ -136,7 +135,8 @@ Q：为什么mpentry.S要用到MPBOOTPHYS，而boot.S不需要？
 
 ### Exercise 3：
 
-<hr>
+---
+
 
 修改 `mem_mp_init()`为每个cpu分配内核栈。CPU内核栈之间有空出KSTKGAP(32KB)，其目的是为了避免一个CPU的内核栈覆盖另外一个CPU的内核栈，空出来这部分可以在栈溢出时报错。每个堆栈的大小都是 `KSTKSIZE` 字节，加上 `KSTKGAP` 字节没有被映射的 守护页 。
 
@@ -152,7 +152,9 @@ static void mem_init_mp(void)
 }
 ```
 
-## Exercize 4
+### Exercize 4
+
+---
 
 修改`trap_init_percpu()`，完成每个CPU的TSS初始化。设置ts_esp0和ts_ss0。
 
@@ -182,7 +184,7 @@ trap_init_percpu(void)
 }
 ```
 
-## Exercize 5
+### Exercize 5
 
 目前我们的代码在 `mp_main()` 初始化完 AP 就不再继续执行了。在允许 AP 继续运行之前，我们需要首先提到当多个 CPU 同时运行内核代码时造成的 *竞争状态* (race condition) ，为了解决它，最简单的办法是使用一个 *全局内核锁* (big kernel lock)。这个 big kernel lock 是唯一的一个全局锁，每当有进程进入内核模式的时候，应当首先获得它，当进程回到用户模式的时候，释放它。在这一模式中，用户模式的进程可以并发地运行在任何可用的 CPU 中，但是最多只有一个进程可以运行在内核模式下。其他试图进入内核模式的进程必须等待。
 
@@ -242,7 +244,66 @@ void env_run(struct Env *e)
 		lcr3(PADDR(curenv->env_pgdir));
 	}
 	env_pop_tf(&curenv->env_tf);
-	unlock_kernel();
+	unlock_kernel();//释放内核锁，该函数将使用iret指令，从内核返回用户态。
+}
+```
+
+#### 问题 2
+
+为什么有了大内核锁后还要给每个CPU分配一个内核栈？ 
+
+这是因为虽然大内核锁限制了多个进程同时执行内核代码，但是在陷入trap()之前，CPU硬件已经自动压栈了SS, ESP, EFLAGS, CS, EIP等寄存器内容，而且在`trapentry.S`中也压入了错误码和中断号到内核栈中，所以不同CPU必须分开内核栈，否则多个CPU同时陷入内核时会破坏栈结构，此时都还没有进入到trap()的加大内核锁位置。
+
+#### Exercize 6
+
+- `kern/sched.c` 中的 `sched_yied()` 函数负责挑选一个进程运行。它从刚刚在运行的进程开始，按顺序循环搜索 `envs[]` 数组（如果从来没有运行过进程，那么就从数组起点开始搜索），选择它遇到的第一个处于 `ENV_RUNNABLE`（参考 `inc/env.h`）状态的进程，并调用 `env_run()` 来运行它。
+- `sched_yield()` 绝不应当在两个CPU上同时运行同一进程。它可以分辨出一个进程正在其他CPU（或者就在当前CPU）上运行，因为这样的进程处于 `ENV_RUNNING` 状态。
+- 用户进程可以调用它来触发内核的 `sched_yield()` 方法，自愿放弃 CPU，给其他进程运行。
+
+```c++
+// 修改kern/sched.c中调度函数实现
+void
+sched_yield(void)
+{
+	struct Env *idle;
+
+	idle = curenv;
+	int start_envid = idle ? ENVX(idle->env_id)+1 : 0; //从当前Env结构的后一个开始
+
+	for (int i = 0; i < NENV; i++) { ////遍历所有Env结构
+		int j = (start_envid + i) % NENV;
+		if (envs[j].env_status == ENV_RUNNABLE) {
+			env_run(&envs[j]);
+		}
+	}
+	//no envs are runnable, but the environment previously
+	// running on this CPU is still ENV_RUNNING
+	if (idle && idle->env_status == ENV_RUNNING) { //这是必须的，假设当前只有一个Env，如果没有这个判断，那么这个CPU将会停机
+		env_run(idle);
+	}
+
+	// sched_halt never returns
+	sched_halt();
+}
+//修改kern/syscall.c
+int32_t
+syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
+{
+  ...
+  case SYS_yield:
+               sys_yield();
+               return 0;
+  ...
+}
+//修改kern/init.c
+void
+i386_init(void)
+{
+  ...	//添加三个新的进程，运行 user/yield.c
+       ENV_CREATE(user_yield, ENV_TYPE_USER);
+       ENV_CREATE(user_yield, ENV_TYPE_USER);
+       ENV_CREATE(user_yield, ENV_TYPE_USER);
+  ...
 }
 ```
 
