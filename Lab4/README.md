@@ -307,6 +307,29 @@ i386_init(void)
 }
 ```
 
+#### 问题 3
+
+---
+
+在env_run中，我们在调用lcr3()切换页目录之前和之后都引用了变量e，为什么切换了页目录还是可以正确引用e呢？
+
+这是因为所有的进程env_pgdir的高地址的映射跟kern_pgdir的是一样的，除了`UVPT`外。
+
+#### 问题 4
+
+---
+
+为什么要保证我们的进程保存了寄存器状态，在哪里保存的？
+
+ 当然要保存寄存器状态，以知道下一条指令地址以及进程栈的状态，不然我们不知道从哪里继续运行。保存寄存器状态的代码是 trap.c 中：
+
+```c++
+// Copy trap frame (which is currently on the stack)
+		// into 'curenv->env_tf', so that running the environment
+		// will restart at the trap point.
+		curenv->env_tf = *tf;
+```
+
 
 
 ## 遇到的问题
