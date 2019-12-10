@@ -42,7 +42,7 @@ struct CpuInfo {
 1. 内核栈：内核代码中的数组`percpu_kstacks[NCPU][KSTKSIZE]`为每个CPU都保留了KSTKSIZE大小的内核栈。从内核线性地址空间看CPU 0的栈从KSTACKTOP开始，CPU 1的内核栈将从CPU 0栈后面KSTKGAP字节处开始，以此类推，参见inc/memlayout.h。
 2. TSS和TSS描述符：每个CPU都需要单独的TSS和TSS描述符来指定该CPU对应的内核栈。
 3. 进程结构指针：每个CPU都会独立运行一个进程的代码，所以需要Env指针。
-4. 系统寄存器：比如cr3, gdt, ltr这些寄存器都是每个CPU私有的，每个CPU都需要单独设置。
+4. 系统寄存器：比如cr3, gdtr, ltr这些寄存器都是每个CPU私有的，每个CPU都需要单独设置。
 
 **envs和CpuInfo关系如下图**
 
@@ -143,7 +143,7 @@ Q：为什么mpentry.S要用到MPBOOTPHYS，而boot.S不需要？
 ```c++
 static void mem_init_mp(void)
 {
-    int i;
+  int i;
   for (i = 0; i < NCPU; i++) 
 	{
         int kstacktop_i = KSTACKTOP - KSTKSIZE - i * (KSTKSIZE + KSTKGAP);
@@ -321,7 +321,7 @@ i386_init(void)
 
 为什么要保证我们的进程保存了寄存器状态，在哪里保存的？
 
- 当然要保存寄存器状态，以知道下一条指令地址以及进程栈的状态，不然我们不知道从哪里继续运行。保存寄存器状态的代码是 trap.c 中：
+当然要保存寄存器状态，以知道下一条指令地址以及进程栈的状态，不然我们不知道从哪里继续运行。保存寄存器状态的代码是 trap.c 中：
 
 ```c++
 // Copy trap frame (which is currently on the stack)
