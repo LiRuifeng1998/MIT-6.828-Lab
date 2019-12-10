@@ -71,6 +71,8 @@ struct CpuInfo {
 
 ## 练习部分
 
+### PART：A
+
 ### Exercise 1
 
 
@@ -157,6 +159,30 @@ Q：为什么mpentry.S要用到MPBOOTPHYS，而boot.S不需要？
 
  这是因为mpentry.S代码mpentry_start, mpentry_end的地址都在KERNBASE(0xf0000000）之上，实模式无法寻址，而我们将mpentry.S加载到了0x7000处，所以需要通过MPBOOTPHYS来寻址。而boot.S加载的位置本身就是实模式可寻址的低地址，所以不用额外转换。
 
+`boot.S`
+
+```
+  lgdt    gdtdesc
+  movl    %cr0, %eax
+  orl     $CR0_PE_ON, %eax
+  movl    %eax, %cr0
+  
+  ljmp    $PROT_MODE_CSEG, $protcseg
+```
+
+`mpentry.S`
+
+```
+#define MPBOOTPHYS(s) ((s) - mpentry_start + MPENTRY_PADDR)
+...
+	lgdt    MPBOOTPHYS(gdtdesc)
+	movl    %cr0, %eax
+	orl     $CR0_PE, %eax
+	movl    %eax, %cr0
+
+	ljmpl   $(PROT_MODE_CSEG), $(MPBOOTPHYS(start32))
+```
+
 ### Exercise 3：
 
 ---
@@ -232,6 +258,8 @@ trap_init_percpu(void)
 }
 ```
 
+函数梗概：为 BSP 初始化了 TSS 和 TSS描述符。
+
 ### Exercize 5
 
 ---
@@ -306,11 +334,15 @@ void env_run(struct Env *e)
 
 #### 问题 2
 
-为什么有了大内核锁后还要给每个CPU分配一个内核栈？ 
+> 为什么有了大内核锁后还要给每个CPU分配一个内核栈？ 
 
 这是因为虽然大内核锁限制了多个进程同时执行内核代码，但是在陷入trap()之前，CPU硬件已经自动压栈了SS, ESP, EFLAGS, CS, EIP等寄存器内容，而且在`trapentry.S`中也压入了错误码和中断号到内核栈中，所以不同CPU必须分开内核栈，否则多个CPU同时陷入内核时会破坏栈结构，此时都还没有进入到trap()的加大内核锁位置。
 
-#### Exercize 6
+
+
+举例：假设CPU0因中断陷入内核并在内核栈中保留了相关的信息，此时若CPU1也发生中断而陷入内核，在同一个内核栈的情况下，CPU0中的信息将会被覆盖从而导致出现错误。
+
+### Exercize 6
 
 ---
 
@@ -326,9 +358,11 @@ sched_yield(void)
 	struct Env *idle;
 
 	idle = curenv;
-	int start_envid = idle ? ENVX(idle->env_id)+1 : 0; //从当前Env结构的后一个开始
+	int start_envid = idle ? ENVX(idle->env_id)+1 : 0; 
+  //如果当前有存在Env，从当前Env结构的后一个开始
+  //否则，从0开始
 
-	for (int i = 0; i < NENV; i++) { ////遍历所有Env结构
+	for (int i = 0; i < NENV; i++) { //遍历所有Env结构
 		int j = (start_envid + i) % NENV;
 		if (envs[j].env_status == ENV_RUNNABLE) {
 			env_run(&envs[j]);
@@ -368,15 +402,15 @@ i386_init(void)
 
 #### 问题 3
 
-在env_run中，我们在调用lcr3()切换页目录之前和之后都引用了变量e，为什么切换了页目录还是可以正确引用e呢？
+> 在你实现的 `env_run()` 中你应当调用了 `lcr3()`。在调用 `lcr3()` 之前和之后，你的代码应当都在引用 变量 `e`，就是 `env_run()` 所需要的参数。 在装载 `%cr3` 寄存器之后， MMU 使用的地址上下文立刻发生改变，但是处在之前地址上下文的虚拟地址（比如说 `e` ）却还能够正常工作，为什么 `e` 在地址切换前后都可以被正确地解引用呢？
 
 这是因为所有的进程env_pgdir的高地址的映射跟kern_pgdir的是一样的，除了`UVPT`外。
 
 #### 问题 4
 
-为什么要保证我们的进程保存了寄存器状态，在哪里保存的？
+> 为什么要保证我们的进程保存了寄存器状态，在哪里保存的？
 
- 当然要保存寄存器状态，以知道下一条指令地址以及进程栈的状态，不然我们不知道从哪里继续运行。保存寄存器状态的代码是 trap.c 中：
+当发生地址转换时一定是从用户陷入内核之后，无论以何种方式陷入内核，必须要经过`kern/trap.c`中的`trap()`函数。如下，当从用户模式陷入内核时，代码将内核栈中的`tf`（包括页表和寄存器等）拷贝至内核间共享的对应的`env`中，所以之后寄存器状态才能恢复。
 
 ```c++
 // Copy trap frame (which is currently on the stack)
@@ -386,6 +420,171 @@ i386_init(void)
 ```
 
 
+
+### exercise7
+
+> 在 `kern/syscall.c` 中实现上面描述的系统调用。你将需要用到在 `kern/pmap.c` 和 `kern/env.c` 中定义的多个函数，尤其是 `envid2env()`。此时，无论何时你调用 `envid2env()`，都应该传递 1 给 `checkperm` 参数。确定你检查了每个系统调用参数均合法，否则返回 `-E_INVAL`。 用 `user/dumbfork` 来测试你的 JOS 内核，在继续前确定它正常的工作。（`make run-dumbfork`）
+
+实现上述所有的系统调用：
+`sys_exofork(void)`：
+
+该系统调用创建一个几乎完全空白的新进程：它的用户地址空间没有内存映射，也不可以运行。这个新的进程拥有和创建它的父进程（调用这一方法的进程）一样的寄存器状态。在父进程中，`sys_exofork` 会返回刚刚创建的新进程的 `envid_t`（或者一个负的错误代码，如果进程分配失败）。在子进程中，它应当返回0。（因为子进程开始时被标记为不可运行，`sys_exofork` 并不会真的返回到子进程，除非父进程显式地将其标记为可以运行以允许子进程运行。
+
+```c++
+static envid_t
+sys_exofork(void)
+{
+    // Create the new environment with env_alloc(), from kern/env.c.
+    // It should be left as env_alloc created it, except that
+    // status is set to ENV_NOT_RUNNABLE, and the register set is copied
+    // from the current environment -- but tweaked so sys_exofork
+    // will appear to return 0.
+
+    // LAB 4: Your code here.
+    struct Env *e;
+    int ret = env_alloc(&e, curenv->env_id);    //分配一个Env结构
+    if (ret < 0) {
+        return ret;
+    }
+    e->env_tf = curenv->env_tf;         //寄存器状态和当前进程一致
+    e->env_status = ENV_NOT_RUNNABLE;   //目前还不能运行
+    e->env_tf.tf_regs.reg_eax = 0;      //新的进程从sys_exofork()的返回值应该为0，修改返回值
+    return e->env_id;
+}
+```
+
+`sys_env_set_status(envid_t envid, int status)`:
+
+输入进程ID和希望设置的状态码（ `ENV_RUNNABLE` 或 `ENV_NOT_RUNNABLE`）构成中要检查状态是否合法，是否有权限设置。
+
+```c++
+static int
+sys_env_set_status(envid_t envid, int status)
+{
+    // Hint: Use the 'envid2env' function from kern/env.c to translate an
+    // envid to a struct Env.
+    // You should set envid2env's third argument to 1, which will
+    // check whether the current environment has permission to set
+    // envid's status.
+    if (status != ENV_NOT_RUNNABLE && status != ENV_RUNNABLE) return -E_INVAL;
+
+    struct Env *e;
+    int ret = envid2env(envid, &e, 1);
+    if (ret < 0) {
+        return ret;
+    }
+    e->env_status = status;
+    return 0;
+}
+```
+
+`sys_page_alloc(envid_t envid, void *va, int perm)`:
+
+分配一个物理内存页面，并将它映射在给定进程虚拟地址空间的给定虚拟地址上。
+
+```c++
+static int
+sys_page_alloc(envid_t envid, void *va, int perm)
+{
+    // Hint: This function is a wrapper around page_alloc() and
+    //   page_insert() from kern/pmap.c.
+    //   Most of the new code you write should be to check the
+    //   parameters for correctness.
+    //   If page_insert() fails, remember to free the page you
+    //   allocated!
+
+    // LAB 4: Your code here.
+    struct Env *e;                                  //根据envid找出需要操作的Env结构
+    int ret = envid2env(envid, &e, 1);
+    if (ret) return ret;    //bad_env
+
+    if ((va >= (void*)UTOP) || (ROUNDDOWN(va, PGSIZE) != va)) return -E_INVAL; //一系列判定
+    int flag = PTE_U | PTE_P;
+    if ((perm & flag) != flag) return -E_INVAL;
+
+    struct PageInfo *pg = page_alloc(1);            //分配物理页
+    if (!pg) return -E_NO_MEM;
+    ret = page_insert(e->env_pgdir, pg, va, perm);  //建立映射关系
+    if (ret) {
+        page_free(pg);
+        return ret;
+    }
+
+    return 0;
+}
+```
+
+`sys_page_map(envid_t srcenvid, void *srcva,envid_t dstenvid, void* dstva, int perm)`:
+
+从一个进程的地址空间拷贝一个页的映射 (**不是** 页的内容) 到另一个进程的地址空间，新进程和旧进程的映射应当指向同一个物理内存区域，使两个进程得以共享内存。
+
+```c++
+static int
+sys_page_map(envid_t srcenvid, void *srcva,
+         envid_t dstenvid, void *dstva, int perm)
+{
+    // Hint: This function is a wrapper around page_lookup() and
+    //   page_insert() from kern/pmap.c.
+    //   Again, most of the new code you write should be to check the
+    //   parameters for correctness.
+    //   Use the third argument to page_lookup() to
+    //   check the current permissions on the page.
+
+    // LAB 4: Your code here.
+    struct Env *se, *de;
+    int ret = envid2env(srcenvid, &se, 1);
+    if (ret) return ret;    //bad_env
+    ret = envid2env(dstenvid, &de, 1);
+    if (ret) return ret;    //bad_env
+
+    //  -E_INVAL if srcva >= UTOP or srcva is not page-aligned,
+    //      or dstva >= UTOP or dstva is not page-aligned.
+    if (srcva >= (void*)UTOP || dstva >= (void*)UTOP || 
+        ROUNDDOWN(srcva,PGSIZE) != srcva || ROUNDDOWN(dstva,PGSIZE) != dstva) 
+        return -E_INVAL;
+
+    //  -E_INVAL is srcva is not mapped in srcenvid's address space.
+    pte_t *pte;
+    struct PageInfo *pg = page_lookup(se->env_pgdir, srcva, &pte);
+    if (!pg) return -E_INVAL;
+
+    //  -E_INVAL if perm is inappropriate (see sys_page_alloc).
+    int flag = PTE_U|PTE_P;
+    if ((perm & flag) != flag) return -E_INVAL;
+
+    //  -E_INVAL if (perm & PTE_W), but srcva is read-only in srcenvid's
+    //      address space.
+    if (((*pte&PTE_W) == 0) && (perm&PTE_W)) return -E_INVAL;
+
+    //  -E_NO_MEM if there's no memory to allocate any necessary page tables.
+    ret = page_insert(de->env_pgdir, pg, dstva, perm);
+    return ret;
+
+}
+```
+
+`sys_page_unmap(envid_t envid, void *va)`:
+
+取消给定进程在给定虚拟地址的页映射。
+
+```C++
+static int
+sys_page_unmap(envid_t envid, void *va)
+{
+    // Hint: This function is a wrapper around page_remove().
+
+    // LAB 4: Your code here.
+    struct Env *env;
+    int ret = envid2env(envid, &env, 1);
+    if (ret) return ret;
+
+    if ((va >= (void*)UTOP) || (ROUNDDOWN(va, PGSIZE) != va)) return -E_INVAL;
+    page_remove(env->env_pgdir, va);
+    return 0;
+}
+```
+
+### PARTB
 
 ## 遇到的问题
 
