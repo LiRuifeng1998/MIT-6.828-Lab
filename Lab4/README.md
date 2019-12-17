@@ -10,6 +10,20 @@
 
 ## 实验概括
 
+ 本次lab的4个方面
+
+1. 支持多处理器
+
+   ![](./pic/cpuInfo.png)
+
+2. 实现**进程调度**算法。 一种是非抢占式式的，另一种是抢占式的，借助时钟中断实现，时钟中断到来时，内核调用sched_yield()选择另一个Env结构执行。
+
+3. 实现写时拷贝fork（**进程创建**）。fork()是库函数，会调用sys_exofork(void)这个系统调用，该系统调用在内核中为子进程创建一个新的Env结构，然将父进程的寄存器状态复制给该Env结构，复制页表，对于PTE_W为1的页目录，复制的同时，设置PTE_COW标志。
+
+4. 实现**进程间通信**。本质还是进入内核修改Env结构的的页映射关系。原理总结如下：
+
+   ![](./pic/IPC原理.png)
+
 
 ## 实验知识总结
 
@@ -23,8 +37,6 @@
 
    哪一个CPU是BSP由硬件和BISO决定，到目前位置所有JOS代码都运行在BSP上。
    在SMP系统中，每个CPU都有一个对应的local APIC（LAPIC），负责传递中断。CPU通过内存映射IO(MMIO)访问它对应的APIC，这样就能通过访问内存达到访问设备寄存器的目的。LAPIC从物理地址0xFE000000开始，JOS将通过MMIOBASE虚拟地址访问该物理地址。
-
-
 
 ### 2 CPUInfo
 
@@ -64,10 +76,6 @@ struct CpuInfo {
 *                     :              .               :                   |
 *    MMIOLIM ------>  +------------------------------+ 0xefc00000      --+
 ```
-
-
-
-
 
 ## 练习部分
 
@@ -587,12 +595,6 @@ sys_page_unmap(envid_t envid, void *va)
 
 ### PART B：Copy-on-Write Fork
 
-
-
-### Part C: Preemptive Multitasking and Inter-Process communication / 抢占式多任务与进程间通信(IPC)
-
-
-
 ### Exercise8
 
 > 实现 `sys_env_set_pgfault_upcall` 系统调用。因为这是一个 “危险” 的系统调用，不要忘记在获得目标进程信息时启用权限检查。
@@ -725,6 +727,248 @@ set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
 ```
 
 用户模式下就可以通过这个函数，传入页缺失处理函数的函数指针，设置进程的env_pgfault_upcall属性，完成页缺失的处理函数注册。当产生页缺失中断时，就能完成页缺失的处理。
+
+
+
+
+
+### Part C: Preemptive Multitasking and Inter-Process communication / 抢占式多任务与进程间通信(IPC)
+
+### Exercise13
+
+> 修改 `kern/trapenrty.S` 和 `kern/trap.c` 来初始化一个合适的 IDT 入口，并为 IRQ 0-15 提供处理函数。接着，修改 `kern/env.c` 中的`env_alloc()` 以确保用户进程总是在中断被打开的情况下运行。
+
+`Trapentery.S`
+
+TRAPHANDLER_NOEC（no error code)函数，不压栈错误码而是push 0，因为对于硬件发生的终端，处理器不会自动压入错误码，又因为offset值为32。
+
+```assembly
+TRAPHANDLER_NOEC(iqr0, 32)
+TRAPHANDLER_NOEC(iqr1, 33)
+TRAPHANDLER_NOEC(iqr2, 34)
+TRAPHANDLER_NOEC(iqr3, 35)
+TRAPHANDLER_NOEC(iqr4, 36)
+TRAPHANDLER_NOEC(iqr5, 37)
+TRAPHANDLER_NOEC(iqr6, 38)
+TRAPHANDLER_NOEC(iqr7, 39)
+TRAPHANDLER_NOEC(iqr8, 40)
+TRAPHANDLER_NOEC(iqr9, 41)
+TRAPHANDLER_NOEC(iqr10, 42)
+TRAPHANDLER_NOEC(iqr11, 43)
+TRAPHANDLER_NOEC(iqr12, 44)
+TRAPHANDLER_NOEC(iqr13, 45)
+TRAPHANDLER_NOEC(iqr14, 46)
+TRAPHANDLER_NOEC(iqr15, 47)
+```
+
+`Trap.c`中补充`trap_init()`
+
+首先声明处理函数，之后使用SETGATE设置表项。
+
+用一个for循环传入函数指针即可。
+
+**调用`SETGATE`时第二个参数必须设置为0，即将它们都视为中断门，阻止中断嵌套（为了简化JOS内核逻辑）**
+
+```c++
+void iqr0();
+void iqr1();
+void iqr2();
+void iqr3();
+void iqr4();
+void iqr5();
+void iqr6();
+void iqr7();
+void iqr8();
+void iqr9();
+void iqr10();
+void iqr11();
+void iqr12();
+void iqr13();
+void iqr14();
+void iqr15();   
+void (*iqrs[])() = {iqr0, iqr1, iqr2, iqr3, iqr4, iqr5, iqr6, iqr7,
+                    iqr8, iqr9, iqr10, iqr11, iqr12, iqr13, iqr14, iqr15};
+int i;
+for (i=0; i<16; i++)
+    SETGATE(idt[IRQ_OFFSET+i], 0, GD_KT, iqrs[i], 0);
+```
+
+
+
+修改 `kern/env.c` 中的`env_alloc()` ，以确保用户进程总是在中断被打开的情况下运行
+
+```c++
+// Enable interrupts while in user mode.
+// LAB 4: Your code here.
+e->env_tf.tf_eflags |= FL_IF;
+```
+
+### EXERCISE 14
+
+>修改内核的 `trap_dispatch()` 函数，使得其每当收到时钟中断的时候，它会调用 `sched_yield()` 寻找另一个进程并运行。
+>
+>你现在应当能让 `user/spin` 测试程序正常工作了（译注：这里有一个文档中没有提到的细节。如果你发现时钟中断只发生一次就再也不会发生了，你应当再去看看 `kern/lapic.c`）：父进程会创建子进程，`sys_yield()` 会切换到子进程几次，但在时间片过后父进程会重新占据 CPU，并最终杀死子进程并正常退出。
+
+`trap.c/trap_dispatch()`
+
+```c++
+// Handle clock interrupts. Don't forget to acknowledge the
+// interrupt using lapic_eoi() before calling the scheduler!
+// LAB 4: Your code here.
+if (tf->tf_trapno == IRQ_OFFSET+IRQ_TIMER) {
+    lapic_eoi();//通告中断
+    sched_yield();
+    return;
+}
+```
+
+### Exercise 15
+
+#### Jos进程间通信：
+
+两个系统调用`sys_ipc_recv`和`sys_ipc_try_sned`。
+
+进程调用`sys_ipc_try_send`，以接受者的进程id和消息值作为参数，向指定进程发送消息。如果接受者正等待接收消息（已调用`sys_ipc_recv`且还没收到消息），则发送者交付这个消息并返回0；否则发送者返回`-E_IPC_NOT_RECV`表明目标进程没有接收消息。
+
+用户库中的`ipc_recv`将负责调用`sys_ipc_recv`接收一个消息，并从当前环境的`struct Env`结构体中获取收到的消息值
+
+用户库中的`ipc_send`将反复调用`sys_ipc_try_send`直到消息发送成功
+
+#### 传递页面：
+
+进程调用 `sys_ipc_recv` 时如果带有一个有效的 `dstva` 参数（在 `UTOP` 之下），它即表明自己希望收到一个页映射。
+
+>实现 `kern/syscall.c` 中的 `sys_ipc_recv` 和 `sys_ipc_try_send`。在实现它们前，你应当读读两边的注释，因为它们需要协同工作。当你在这些例程中调用 `envid2env` 时，你应当将 `checkperm` 设置为 0，这意味着进程可以与任何其他进程通信，内核除了确保目标进程 ID 有效之外，不会做其他任何检查。
+>
+>接下来在 `lib/ipc.c` 中实现 `ipc_recv` 和 `ipc_send`。
+>
+>用 `user/pingpong` 和 `user/primes` 来测试你的 IPC 机制。 `user/primes` 会为每一个素数生成一个新的进程，直到 JOS 已经没有新的进程页可以分配了。
+>
+>`user/primes.c` 用来创建子进程和通信的代码读起来可能很有趣。（译注：可能因为 `user/primes` 的输出过多，有时无法从 QEMU 输出串口读取全部的输出，测试脚本可能判定程序运行错误。多运行几次试试看？）
+
+`sys_ipc_recv`:挂起等待消息
+
+```c++
+static int
+sys_ipc_recv(void *dstva)
+{
+    // LAB 4: Your code here.
+    if ((uintptr_t)dstva < UTOP && ((uintptr_t)dstva & 0xFFF) != 0)
+        return -E_INVAL;
+    
+    //设置当前进程
+    curenv->env_ipc_recving = 1;
+    curenv->env_ipc_dstva = dstva;
+  	//挂起当前进程
+    curenv->env_status = ENV_NOT_RUNNABLE;
+    sched_yield();
+    // panic("sys_ipc_recv not implemented");
+    return 0;
+}
+```
+
+`sys_ipc_try_send`:将消息值`value`发送到id为`envid`的进程
+
+```c++
+static int
+sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
+{
+    // LAB 4: Your code here.
+    // panic("sys_ipc_try_send not implemented");
+    struct Env *recv = NULL;
+  	//由id返回进程
+    if (envid2env(envid, &recv, 0) < 0) return -E_BAD_ENV;
+  	//没有收到，返回
+    if (!recv->env_ipc_recving) return -E_IPC_NOT_RECV;
+
+    if ((uintptr_t)srcva < UTOP) {
+      //没有4k对齐
+        if ((uintptr_t)srcva & 0xFFF) return -E_INVAL;
+        pte_t *pte = NULL;
+        struct PageInfo *page = page_lookup(curenv->env_pgdir, srcva, &pte);
+      //没有映射任何的物理页面
+        if (!page) return -E_INVAL;
+      //权限不当
+        if ((*pte & (PTE_U | PTE_P)) == 0) return -E_INVAL;
+        if ((*pte & ~(PTE_U | PTE_P | PTE_AVAIL | PTE_W)) != 0) return -E_INVAL;
+        if (!(*pte & PTE_W) && (perm & PTE_W)) return -E_INVAL;
+      //没有足够空间映射
+        if (page_insert(recv->env_pgdir, page, recv->env_ipc_dstva, perm) < 0)
+            return -E_NO_MEM;
+        recv->env_ipc_perm = perm;
+    }
+
+  //若接收成功了
+  //阻止其他消息
+    recv->env_ipc_recving = 0;
+  //设为发送者envid
+    recv->env_ipc_from = curenv->env_id;
+    recv->env_ipc_value = value;
+  //接受者标记为可运行
+    recv->env_status = ENV_RUNNABLE;
+
+    // 让接收者调用的sys_ipc_recv返回0
+    recv->env_tf.tf_regs.reg_eax = 0;
+
+    return 0;
+}
+```
+
+`ipc_recv`：调用`sys_ipc_recv`，接收一个IPC消息并返回
+
+```c++
+int32_t
+ipc_recv(envid_t *from_env_store, void *pg, int *perm_store)
+{
+    // LAB 4: Your code here.
+    // panic("ipc_recv not implemented");
+    int err;
+  //调用失败的情况，全部置为0
+    if ((err=sys_ipc_recv(pg)) < 0) {
+        if (from_env_store) *from_env_store = 0;
+      //
+        if (perm_store) *perm_store = 0;
+        return err;
+    }
+  //否则,如果from_env_store非空，则将发送者的envid保存在from_env_store
+
+    if (from_env_store)
+        *from_env_store = thisenv->env_ipc_from;
+  //如果perm_store非空，则将来自发送者的页面权限保存在perm_store（没有页面传输则为0）
+    if (perm_store) {
+        if (pg) *perm_store = thisenv->env_ipc_perm;
+        else *perm_store = 0;
+    }
+  //返回值为发送者的value
+    return thisenv->env_ipc_value;
+}
+```
+
+`ipc_send`:调用`sys_ipc_try_send`，向进程`toenv`传送消息
+
+```c++
+void
+ipc_send(envid_t to_env, uint32_t val, void *pg, int perm)
+{
+    // LAB 4: Your code here.
+  if (pg == NULL) {
+        pg = (void *)-1;
+    }
+    int r;
+    while(1) {
+        r = sys_ipc_try_send(to_env, val, pg, perm);
+        if (r == 0) {       //发送成功
+            return;
+        } else if (r == -E_IPC_NOT_RECV) {  //接收进程没有准备好
+            sys_yield();//该系统调用可以唤醒sched_yield()主动放弃CPU
+        } else {            //其它错误
+            panic("ipc_send():%e", r);
+        }
+    }
+}
+```
+
+
 
 ## 遇到的问题
 
