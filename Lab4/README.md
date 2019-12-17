@@ -421,7 +421,7 @@ i386_init(void)
 
 
 
-### exercise7
+### Exercise7
 
 > 在 `kern/syscall.c` 中实现上面描述的系统调用。你将需要用到在 `kern/pmap.c` 和 `kern/env.c` 中定义的多个函数，尤其是 `envid2env()`。此时，无论何时你调用 `envid2env()`，都应该传递 1 给 `checkperm` 参数。确定你检查了每个系统调用参数均合法，否则返回 `-E_INVAL`。 用 `user/dumbfork` 来测试你的 JOS 内核，在继续前确定它正常的工作。（`make run-dumbfork`）
 
@@ -586,9 +586,138 @@ sys_page_unmap(envid_t envid, void *va)
 
 ### PARTB
 
+### Exercise8
+
+> 实现 `sys_env_set_pgfault_upcall` 系统调用。因为这是一个 “危险” 的系统调用，不要忘记在获得目标进程信息时启用权限检查。
+
+```c++
+static int 
+sys_env_set_pgfault_upcall(envid_t envid, void *func)
+{
+    struct Env *e; 
+    if (envid2env(envid, &e, 1)) return -E_BAD_ENV;
+    e->env_pgfault_upcall = func;
+    return 0;
+}
+```
+
+该系统调用为指定的用户环境设置env_pgfault_upcall，缺页中断发生时，会执行env_pgfault_upcall指定位置的代码。
+
+### Exercise9
+
+> 实现在 `kern/trap.c` 中的 `page_fault_handler` 方法，使其能够将缺页分发给用户模式缺页处理函数。确认你在写入异常堆栈时已经采取足够的预防措施了。（如果用户进程的异常堆栈已经没有空间了会发生什么？）
+
+缺页中断发生时会进入内核的trap()，然后分配page_fault_handler()来处理缺页中断。在该函数中应该做如下几件事：
+
+1. 判断curenv->env_pgfault_upcall是否设置，如果没有设置也就没办法修复，直接销毁该进程。
+2. 修改esp，切换到用户异常栈。
+3. 在栈上压入一个UTrapframe结构。
+4. 将eip设置为curenv->env_pgfault_upcall，然后回到用户态执行curenv->env_pgfault_upcall处的代码。
+
+```c++
+void 
+page_fault_handler(Trapframe *tf) {
+    ...
+    // LAB 4: Your code here.
+    if (curenv->env_pgfault_upcall) {
+        struct UTrapframe *utf;
+      //如果在异常栈内发生了缺页，则为EIP多保留4个字节
+        if (tf->tf_esp >= UXSTACKTOP-PGSIZE && tf->tf_esp <= UXSTACKTOP-1) {
+            utf = (struct UTrapframe *)(tf->tf_esp - sizeof(struct UTrapframe) - 4); 
+        } else {
+            utf = (struct UTrapframe *)(UXSTACKTOP - sizeof(struct UTrapframe));
+        }   
+
+        user_mem_assert(curenv, (void*)utf, 1, PTE_W);
+        utf->utf_fault_va = fault_va;
+        utf->utf_err = tf->tf_err;
+        utf->utf_regs = tf->tf_regs;
+        utf->utf_eip = tf->tf_eip;
+        utf->utf_eflags = tf->tf_eflags;
+        utf->utf_esp = tf->tf_esp;
+
+        curenv->env_tf.tf_eip = (uintptr_t)curenv->env_pgfault_upcall;
+        curenv->env_tf.tf_esp = (uintptr_t)utf;
+        env_run(curenv);
+    } 
+    ...
+} 
+```
+
+### Exercise10
+
+> 实现在 `lib/pfentry.S` 中的 `_pgfault_upcall` 例程。返回到一开始运行造成缺页的用户代码这一部分很有趣。你在这里将会直接返回，而不是通过内核。最难的部分是同时调整堆栈并重新装载 EIP。
+
+以下是UTrapframe结构，根据这个结构，然后完成练习10，就是找到缺页时的eip，压到缺页时的栈里，再通过ret返回。
+
+```c++
+                   <-- UXSTACKTOP
+trap-time esp
+trap-time eflags
+trap-time eip
+trap-time eax       start of struct PushRegs
+trap-time ecx
+trap-time edx
+trap-time ebx
+trap-time esp
+trap-time ebp
+trap-time esi
+trap-time edi       end of struct PushRegs
+tf_err (error code)
+fault_va            <-- %esp when handler is run
+```
+
+```c++
+_pgfault_upcall:
+        ...
+    // LAB 4: Your code here.
+    addl $8, %esp           //跳过utf_fault_va和utf_err
+    movl 40(%esp), %eax     //保存中断发生时的esp到eax
+    movl 32(%esp), %ecx     //保存终端发生时的eip到ecx
+    movl %ecx, -4(%eax)     //将中断发生时的esp值亚入到到原来的栈中
+    popal
+    addl $4, %esp           //跳过eip
+
+    // Restore eflags from the stack.  After you do this, you can
+    // no longer use arithmetic operations or anything else that
+    // modifies eflags.
+    // LAB 4: Your code here.
+    popfl
+    // Switch back to the adjusted trap-time stack.
+    // LAB 4: Your code here.
+    popl %esp
+    // Return to re-execute the instruction that faulted.
+    // LAB 4: Your code here.
+    lea -4(%esp), %esp      //因为之前压入了eip的值但是没有减esp的值，所以现在需要将esp寄存器中的值减4
+    ret
+```
+
+### Exercise 11
+
+> 完成在 `lib/pgfault.c` 中的 `set_pgfault_handler()` 。
+
+```c++
+void
+set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
+{
+    int r;
+
+    if (_pgfault_handler == 0) {
+        // First time through!
+        // LAB 4: Your code here.
+        int r = sys_page_alloc(0, (void *)(UXSTACKTOP-PGSIZE), PTE_W | PTE_U | PTE_P);  //为当前进程分配异常栈
+        if (r < 0) {
+            panic("set_pgfault_handler:sys_page_alloc failed");;
+        }
+        sys_env_set_pgfault_upcall(0, _pgfault_upcall);     //系统调用，设置进程的env_pgfault_upcall属性
+    }
+
+    // Save handler pointer for assembly to call.
+    _pgfault_handler = handler;
+}
+```
+
+用户模式下就可以通过这个函数，传入页缺失处理函数的函数指针，设置进程的env_pgfault_upcall属性，完成页缺失的处理函数注册。当产生页缺失中断时，就能完成页缺失的处理。
+
 ## 遇到的问题
 
-
-```
-
-```
