@@ -426,7 +426,8 @@ i386_init(void)
 > 在 `kern/syscall.c` 中实现上面描述的系统调用。你将需要用到在 `kern/pmap.c` 和 `kern/env.c` 中定义的多个函数，尤其是 `envid2env()`。此时，无论何时你调用 `envid2env()`，都应该传递 1 给 `checkperm` 参数。确定你检查了每个系统调用参数均合法，否则返回 `-E_INVAL`。 用 `user/dumbfork` 来测试你的 JOS 内核，在继续前确定它正常的工作。（`make run-dumbfork`）
 
 实现上述所有的系统调用：
-`sys_exofork(void)`：
+
+#### sys_exofork(void)：
 
 该系统调用创建一个几乎完全空白的新进程：它的用户地址空间没有内存映射，也不可以运行。这个新的进程拥有和创建它的父进程（调用这一方法的进程）一样的寄存器状态。在父进程中，`sys_exofork` 会返回刚刚创建的新进程的 `envid_t`（或者一个负的错误代码，如果进程分配失败）。在子进程中，它应当返回0。（因为子进程开始时被标记为不可运行，`sys_exofork` 并不会真的返回到子进程，除非父进程显式地将其标记为可以运行以允许子进程运行。
 
@@ -453,7 +454,7 @@ sys_exofork(void)
 }
 ```
 
-`sys_env_set_status(envid_t envid, int status)`:
+#### sys_env_set_status(envid_t envid, int status):
 
 输入进程ID和希望设置的状态码（ `ENV_RUNNABLE` 或 `ENV_NOT_RUNNABLE`）构成中要检查状态是否合法，是否有权限设置。
 
@@ -478,7 +479,7 @@ sys_env_set_status(envid_t envid, int status)
 }
 ```
 
-`sys_page_alloc(envid_t envid, void *va, int perm)`:
+#### sys_page_alloc(envid_t envid, void *va, int perm):
 
 分配一个物理内存页面，并将它映射在给定进程虚拟地址空间的给定虚拟地址上。
 
@@ -514,7 +515,7 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 }
 ```
 
-`sys_page_map(envid_t srcenvid, void *srcva,envid_t dstenvid, void* dstva, int perm)`:
+#### sys_page_map(envid_t srcenvid, void *srcva,envid_t dstenvid, void* dstva, int perm):
 
 从一个进程的地址空间拷贝一个页的映射 (**不是** 页的内容) 到另一个进程的地址空间，新进程和旧进程的映射应当指向同一个物理内存区域，使两个进程得以共享内存。
 
@@ -563,7 +564,7 @@ sys_page_map(envid_t srcenvid, void *srcva,
 }
 ```
 
-`sys_page_unmap(envid_t envid, void *va)`:
+#### sys_page_unmap(envid_t envid, void *va):
 
 取消给定进程在给定虚拟地址的页映射。
 
@@ -584,7 +585,13 @@ sys_page_unmap(envid_t envid, void *va)
 }
 ```
 
-### PARTB
+### PART B：Copy-on-Write Fork
+
+
+
+### Part C: Preemptive Multitasking and Inter-Process communication / 抢占式多任务与进程间通信(IPC)
+
+
 
 ## 遇到的问题
 
