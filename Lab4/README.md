@@ -719,5 +719,124 @@ set_pgfault_handler(void (*handler)(struct UTrapframe *utf))
 
 用户模式下就可以通过这个函数，传入页缺失处理函数的函数指针，设置进程的env_pgfault_upcall属性，完成页缺失的处理函数注册。当产生页缺失中断时，就能完成页缺失的处理。
 
+### Exercise 12
+
+> 实现在 `lib/fork.c` 中的 `fork`，`duppage` 和 `pgfault`。
+
+pgfault做的工作是首先检查一下缺页原因，是否为写造成的页缺失，且缺失的页面被标记为写时复制，否则，panic。
+
+然后将一个暂时的虚拟地址PFTEMP也映射到缺失的物理页，并将缺失的虚拟地址addr新分配一个物理页，与其建立映射，最后将PFTEMP映射的缺失物理页拷贝到新的物理页，取消PFTEMP的映射，完成整个工作。
+
+```c++
+static void
+pgfault(struct UTrapframe *utf)
+{
+	void *addr = (void *) utf->utf_fault_va;
+	uint32_t err = utf->utf_err;
+	int r;
+
+	// Check that the faulting access was (1) a write, and (2) to a
+	// copy-on-write page.  If not, panic.
+	// Hint:
+	//   Use the read-only page table mappings at uvpt
+	//   (see <inc/memlayout.h>).
+
+	// LAB 4: Your code here.
+	if (!((err & FEC_WR) && (uvpt[PGNbUM(addr)] & PTE_COW)))
+	 { //只有因为写操作写时拷贝的地址才可以抢救。否则一律panic
+		panic("pgfault():not cow");
+	}
+
+	// Allocate a new page, map it at a temporary location (PFTEMP),
+	// copy the data from the old page to the new page, then move the new
+	// page to the old page's address.
+	// Hint:
+	//   You should make three system calls.
+
+	// LAB 4: Your code here.
+	addr = ROUNDDOWN(addr, PGSIZE);
+	if ((r = sys_page_map(0, addr, 0, PFTEMP, PTE_U|PTE_P)) < 0)		//将当前进程PFTEMP也映射到当前进程addr指向的物理页
+		panic("sys_page_map: %e", r);
+	if ((r = sys_page_alloc(0, addr, PTE_P|PTE_U|PTE_W)) < 0)	//令当前进程addr指向新分配的物理页
+		panic("sys_page_alloc: %e", r);
+	memmove(addr, PFTEMP, PGSIZE);								//将PFTEMP指向的物理页拷贝到addr指向的物理页
+	if ((r = sys_page_unmap(0, PFTEMP)) < 0)					//解除当前进程PFTEMP映射
+		panic("sys_page_unmap: %e", r);
+	//panic("pgfault not implemented");
+}
+
+```
+
+duppage函数做的工作是传入一个目标进程和页号，分几种情况：如果该页是共享页的，则拷贝地址映射到目标进程，并且权限为共享。如果该页是可写或写时复制的，则拷贝地址映射的同时，目标进程页表和当前进程页表都需要将该页权限置为写实复制即PTE_COW。对于只读的页，则只用拷贝地址映射即可。
+
+```c++
+static int
+duppage(envid_t envid, unsigned pn)
+{
+	int r;
+
+	// LAB 4: Your code here.
+	void *addr = (void*) (pn * PGSIZE);
+	if (uvpt[pn] & PTE_SHARE) 
+	{
+		sys_page_map(0, addr, envid, addr, PTE_SYSCALL);		//对于表示为PTE_SHARE的页，拷贝映射关系，并且两个进程都有读写权限
+	} 
+	else if ((uvpt[pn] & PTE_W) || (uvpt[pn] & PTE_COW))
+	{ //对于UTOP以下的可写的或者写时拷贝的页，拷贝映射关系的同时，需要同时标记当前进程和子进程的页表项为PTE_COW
+		if ((r = sys_page_map(0, addr, envid, addr, PTE_COW|PTE_U|PTE_P)) < 0)
+			panic("sys_page_map：%e", r);
+		if ((r = sys_page_map(0, addr, 0, addr, PTE_COW|PTE_U|PTE_P)) < 0)
+			panic("sys_page_map：%e", r);
+	} 
+	else
+	{
+		sys_page_map(0, addr, envid, addr, PTE_U|PTE_P);	//对于只读的页，只需要拷贝映射关系即可
+	}
+	return 0;
+}
+```
+
+fork函数：首先父进程安装 `pgfault()` 作为 C 语言的缺页处理函数，调用sys_exofork()创建一个不可运行但有相同寄存器状态的子进程，接着对USTACKTOP以下的地址空间，调用duppage函数，填写子进程的页目录和页表，并为子进程分配一个物理页作为其异常栈，最后为子进程设置_pgfault_upcall入口，将子进程设置为ENV_RUNNABLE状态，完成写时复制的创建进程工作。
+
+```c++
+envid_t
+fork(void)
+{
+	// LAB 4: Your code here.
+	//panic("fork not implemented");
+	extern void _pgfault_upcall(void);
+	set_pgfault_handler(pgfault);	//设置缺页处理函数
+	envid_t envid = sys_exofork();	//系统调用，只是简单创建一个Env结构，复制当前用户环境寄存器状态，UTOP以下的页目录还没有建立
+	if (envid == 0) 
+	{				//子进程将走这个逻辑
+		thisenv = &envs[ENVX(sys_getenvid())];
+		return 0;
+	}
+	if (envid < 0)
+	{
+		panic("sys_exofork: %e", envid);
+	}
+
+	uint32_t addr;
+	for (addr = 0; addr < USTACKTOP; addr += PGSIZE) 
+	{
+		if ((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_U)) 
+		{
+			duppage(envid, PGNUM(addr));	//拷贝当前进程映射关系到子进程
+		}
+	}
+	int r;
+	if ((r = sys_page_alloc(envid, (void *)(UXSTACKTOP-PGSIZE), PTE_P | PTE_W | PTE_U)) < 0)	//为子进程分配异常栈
+		panic("sys_page_alloc: %e", r);
+	sys_env_set_pgfault_upcall(envid, _pgfault_upcall);		//为子进程设置_pgfault_upcall
+
+	if ((r = sys_env_set_status(envid, ENV_RUNNABLE)) < 0)	//设置子进程为ENV_RUNNABLE状态
+		panic("sys_env_set_status: %e", r);
+	return envid;
+}
+```
+
+
+
 ## 遇到的问题
 
