@@ -14,7 +14,7 @@ JOS操作系统实验
 
 传送门：[Lab3:User Environment 用户进程](./Lab3)
 
-### Lab3:User Environment 用户进程
+### Lab4:Preemptive Multitasking / 抢占式多任务处理
 
 传送门：[Lab 4: Preemptive Multitasking / 抢占式多任务处理](./Lab4)
 
