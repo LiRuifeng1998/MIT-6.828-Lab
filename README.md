@@ -18,3 +18,7 @@ JOS操作系统实验
 
 传送门：[Lab 4: Preemptive Multitasking / 抢占式多任务处理](./Lab4)
 
+### Lab 5: File system, Spawn and Shell / 文件系统，Spawn 和 Shell
+
+传送门：[Lab 5: File system, Spawn and Shell / 文件系统，Spawn 和 Shell](./Lab5)
+
