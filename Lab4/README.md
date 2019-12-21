@@ -953,7 +953,7 @@ if (tf->tf_trapno == IRQ_OFFSET+IRQ_TIMER) {
 
 #### Jos进程间通信：
 
-两个系统调用`sys_ipc_recv`和`sys_ipc_try_sned`。
+两个系统调用`sys_ipc_recv`和`sys_ipc_try_send`。
 
 进程调用`sys_ipc_try_send`，以接受者的进程id和消息值作为参数，向指定进程发送消息。如果接受者正等待接收消息（已调用`sys_ipc_recv`且还没收到消息），则发送者交付这个消息并返回0；否则发送者返回`-E_IPC_NOT_RECV`表明目标进程没有接收消息。
 
