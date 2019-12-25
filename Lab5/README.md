@@ -22,13 +22,12 @@
 
 ### 1. 文件元数据
 
-扇区是磁盘的物理属性，通常一个扇区大小为512字节，而数据块则是操作系统使用磁盘的一个逻辑属性，一个块大小通常是扇s区的整数倍，在JOS中一个块大小为4KB，跟我们物理内存的页大小一致。
+扇区是磁盘的物理属性，通常一个扇区大小为512字节，而数据块则是操作系统使用磁盘的一个逻辑属性，一个块大小通常是扇区的整数倍，在JOS中一个块大小为4KB，跟我们物理内存的页大小一致。
 
 JOS使用同一个 File 结构存储了磁盘和内存中的文件元数据。File结构既能代表文件也能代表目录，由type字段区分，文件系统以相同的方式管理文件和目录，只是目录文件的内容是一系列File结构，这些File结构描述了在该目录下的文件或者子目录。
 超级块中包含一个File结构，代表文件系统的根目录。
 
 ```c++
-
 struct File {
 	char f_name[MAXNAMELEN];	// filename
 	off_t f_size;			// file size in bytes
@@ -98,7 +97,9 @@ JOS采用的是`demand paging`，即访问对应的磁盘块发生了页错误�
  }; 
 ```
 
+### 5. 结构示意图
 
+![](./pic/struct.png)
 
 ## 练习部分
 
@@ -132,7 +133,7 @@ env_create(uint8_t *binary, enum EnvType type)
 
 > 除此之外，你还需要做其他别的事情来确保在切换进程的时候这个 I/O 特权设置能够被正确地保留下来吗？为什么？
 
-不需要，因为每个进程都有自己的Trampframe，不会相互影响。
+不需要，用户环境切换的时候，eflags寄存器的状态有CPU压入内核栈，最后由`env_pop_tf`的`iret`指令恢复eflags寄存器状态。
 
 #### Exercise 2
 
@@ -276,6 +277,14 @@ NINDIRECT为间接块的块号，共1024个块指针。
         return 0;
 ```
 
+
+
+
+### 文件系统接口
+
+我们还需要让其他想要使用文件系统的进程能够和文件系统进程通信。因为其他进程不能直接调用文件系统进程的函数，我们需要通过 RPC (远程过程调用, Remote procedure call) 暴露出访问文件系统进程的抽象方法。这是建立在 JOS 的进程间通信(IPC)机制上的。以读文件为例，调用文件系统服务的过程直观上看起来是这样的：
+
+![](./pic/file_read.png)
 #### Exercise 5
 
 文件系统服务端代码在fs/serv.c中，serve()中有一个无限循环，接收IPC请求，将对应的请求分配到对应的处理函数，然后将结果通过IPC发送回去。
@@ -309,14 +318,6 @@ serve_read(envid_t envid, union Fsipc *ipc)
     return r;
 }
 ```
-
-
-
-### 文件系统接口
-
-我们还需要让其他想要使用文件系统的进程能够和文件系统进程通信。因为其他进程不能直接调用文件系统进程的函数，我们需要通过 RPC (远程过程调用, Remote procedure call) 暴露出访问文件系统进程的抽象方法。这是建立在 JOS 的进程间通信(IPC)机制上的。以读文件为例，调用文件系统服务的过程直观上看起来是这样的：
-
-![](./pic/file_read.png)
 
 #### Exercise 6
 
@@ -352,7 +353,16 @@ serve_write(envid_t envid, struct Fsreq_write *req)
 }
 ```
 
-`devfile_write：`客户端进程函数，包装一下参数，直接调用fsipc()将参数发送给FS进程处理。
+file_write(File,缓冲区，缓冲区长度，偏移），包含file_get_block：该函数查找文件第filebno个block对应的虚拟地址addr，将其保存到blk地址处。
+
+同样先找到req->req_fileid对应的OpenFIle，然后将req->req_buf中req->req_n个字节的内容写到OpenFile的fd_offset处。
+注：req_n可能大于req_buf的容量，所以req_n最多只能等于req_buf的大小，即一个PGSIZE。但是实际写入的内容可以少于请求写入的内容，这是允许的。
+
+
+
+devfile_write：客户端进程函数，包装一下参数，直接调用fsipc()将参数发送给FS进程处理。
+
+fsipc：Send an inter-environment request to the file server, and wait for a reply.
 
 ```c++
 static ssize_t
@@ -370,8 +380,6 @@ devfile_write(struct Fd *fd, const void *buf, size_t n)
     return fsipc(FSREQ_WRITE, NULL);
 }
 ```
-
-
 
 ### Spawning Processes
 
@@ -407,15 +415,13 @@ sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
     {
         return r;
     }
-    tf->tf_eflags = FL_IF;
-    tf->tf_eflags &= ~FL_IOPL_MASK;         //普通进程不能有IO权限
-    tf->tf_cs = GD_UT | 3;
-    e->env_tf = *tf;
+    tf->tf_eflags = FL_IF;// Interrupt Flag
+    tf->tf_eflags &= ~FL_IOPL_MASK;//I/O Privilege Level bitmask
+    tf->tf_cs = GD_UT | 3;//低位设为11，则是用户权限
+    e->env_tf = *tf;//更改tf
     return 0;
 }
 ```
-
-
 
 #### Exercise 8
 
@@ -436,8 +442,10 @@ duppage(envid_t envid, unsigned pn)
     void *addr = (void*) (pn * PGSIZE);
     if (uvpt[pn] & PTE_SHARE) 
     {
-        sys_page_map(0, addr, envid, addr, PTE_SYSCALL);        //对于标识为PTE_SHARE的页，拷贝映射关系，并且两个进程都有读写权限
+        sys_page_map(0, addr, envid, addr, PTE_SYSCALL);//对于标识为PTE_SHARE的页，拷贝映射关系，并且两个进程都有读写权限
     }
+  //#define PTE_SYSCALL	(PTE_AVAIL | PTE_P | PTE_W | PTE_U)
+  //copy-on-write
   else if ((uvpt[pn] & PTE_W) || (uvpt[pn] & PTE_COW)) { //对于UTOP以下的可写的或者写时拷贝的页，拷贝映射关系的同时，需要同时标记当前进程和子进程的页表项为PTE_COW
         if ((r = sys_page_map(0, addr, envid, addr, PTE_COW|PTE_U|PTE_P)) < 0)
             panic("sys_page_map：%e", r);
@@ -453,6 +461,8 @@ duppage(envid_t envid, unsigned pn)
 
 `copy_shared_pages():`对于共享页，子进程与父进程拷贝映射关系，实现共享文件描述符。
 
+它应该循环查找当前进程的整个⻚表⼊⼝ （就像 fork 做的那样，把所有有着 PTE_SHARE 标记的⻚直接复制给⼦进程。
+
 ```c++
 static int
 copy_shared_pages(envid_t child)
@@ -460,6 +470,7 @@ copy_shared_pages(envid_t child)
     // LAB 5: Your code here.
     uintptr_t addr;
     for (addr = 0; addr < UTOP; addr += PGSIZE) {
+      //判断一二级页表present位，user和share位
         if ((uvpd[PDX(addr)] & PTE_P) && (uvpt[PGNUM(addr)] & PTE_P) &&
                 (uvpt[PGNUM(addr)] & PTE_U) && (uvpt[PGNUM(addr)] & PTE_SHARE)) {
             sys_page_map(0, (void*)addr, child, (void*)addr, (uvpt[PGNUM(addr)] & PTE_SYSCALL));
@@ -468,6 +479,8 @@ copy_shared_pages(envid_t child)
     return 0;
 }
 ```
+
+`sys_page_map`:从一个进程中拷贝一个页面映射（而非物理页的内容）到另一个。即共享内存。
 
 
 
@@ -493,17 +506,16 @@ if (tf->tf_trapno == IRQ_OFFSET + IRQ_KBD) {
 ...
 ```
 
-
-
 #### Exercise 10
 
-> shell 还不能支持 I/O 重定向。如果能够运行 `sh  这样的代码，而不是直接把脚本中的各种命令打进去就好了。现在，为 `user/sh.c` 添加一个 I/O 重定向运算符 `<`。
+> shell 还不能支持 I/O 重定向。如果能够运行 `sh<script`这样的代码，而不是直接把脚本中的各种命令打进去就好了。现在，为 `user/sh.c` 添加一个 I/O 重定向运算符 `<`。
 
 目前shell还不支持IO重定向，修改user/sh.c，增加IO该功能。
 
 ```c++
 runcmd(char* s) {
             ...
+              //参数在lib.h中，只写，仿照>的例子，注释
             if ((fd = open(t, O_RDONLY)) < 0) {
                 cprintf("open %s for write: %e", t, fd);
                 exit();
